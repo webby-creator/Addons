@@ -1,0 +1,42 @@
+[package]
+name = "addons-backend"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+database = { path = "../database" }
+common = { path = "../common" }
+
+hyper = "1.4"
+axum = { version = "0.7", features = ["multipart"] }
+tower-sessions-sqlx-store = { version = "0.13", features = ["sqlite"] }
+tower-sessions = "0.12"
+axum-login = "0.15"
+axum-extra = { version = "0.9", features = ["typed-header"] }
+tower = { version = "0.4", features = ["util"] }
+tower-http = { version = "0.5", features = [
+    "fs",
+    "trace",
+    "cors",
+    "validate-request",
+] }
+
+tokio = { workspace = true, features = ["full"] }
+futures = "0.3"
+mime_guess = "2.0"
+image = { version = "0.25", features = ["webp"] }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+eyre = { workspace = true }
+thiserror = { workspace = true }
+
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+tracing = { workspace = true }
+
+sha2 = "0.10"
+uuid = { workspace = true, features = ["v4", "v7", "serde"] }
+num_enum = { workspace = true }
+time = { workspace = true }
+
+sqlx = { workspace = true, features = ["runtime-tokio", "sqlite"] }
