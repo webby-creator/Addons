@@ -22,7 +22,9 @@ pub struct AddonModel {
 
     pub developer_id: DeveloperId,
     pub guid: Uuid,
-
+    // TODO: Secret Key
+    // TODO: App URL Redirect After Install (w/ auth code)
+    // TODO: App URL Redirect After Authorization (w/ temp auth code)
     pub name: String,
     pub tag_line: String,
     pub description: String,

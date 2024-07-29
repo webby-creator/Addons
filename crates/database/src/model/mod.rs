@@ -9,16 +9,16 @@ use sqlx::{
 };
 
 mod addon;
-mod addon_media;
 mod developer;
 mod developer_member;
 mod media_upload;
+mod settings;
 
 pub use addon::*;
-pub use addon_media::*;
 pub use developer::*;
 pub use developer_member::*;
 pub use media_upload::*;
+pub use settings::*;
 
 #[derive(Debug, Clone)]
 pub struct Binary<T: ?Sized>(pub T);
