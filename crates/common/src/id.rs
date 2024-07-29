@@ -84,7 +84,9 @@ macro_rules! create_id {
     };
 }
 
-create_id!(DeveloperId, i32);
+// External Member
+create_id!(MemberId, i32);
+
 create_id!(AddonId, i32);
 create_id!(AddonTagId, i32);
 create_id!(AddonPageId, i32);

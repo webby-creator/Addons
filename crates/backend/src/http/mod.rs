@@ -13,7 +13,7 @@ use common::{
         get_full_file_path, get_next_uploading_file_path, get_thumb_file_path,
         read_and_upload_data, register_b2, StorageService,
     },
-    DeveloperId, ListResponse, WrappingResponse,
+    ListResponse, MemberId, WrappingResponse,
 };
 use database::{
     AddonModel, MediaUploadModel, NewAddonMediaModel, NewAddonModel, NewMediaUploadModel,
@@ -135,9 +135,8 @@ async fn new_addon(
         tags: _,
     }): extract::Json<Asdf>,
 ) -> Result<JsonResponse<AddonPublic>> {
-    // TODO: Developer
     let addon = NewAddonModel {
-        developer_id: DeveloperId::from(1),
+        member_id: MemberId::from(1),
         name: title,
         tag_line: tagline,
         description,
@@ -162,23 +161,13 @@ async fn upload_icon(
     storage: StorageService,
     mut multipart: extract::Multipart,
 ) -> Result<JsonResponse<Option<&'static str>>> {
-    // TODO: Ensure we have permission
-    let member_uuid = Uuid::nil();
-
     let Some(addon) = AddonModel::find_one_by_guid(guid, &mut *db.acquire().await?).await? else {
         return Err(eyre::eyre!("Addon not found"))?;
     };
 
     if let Some(field) = multipart.next_field().await? {
-        if let Some(model) = upload_file(
-            field,
-            addon.developer_id,
-            member_uuid,
-            Some((200, 200)),
-            &storage,
-            &db,
-        )
-        .await?
+        if let Some(model) =
+            upload_file(field, addon.member_id, Some((200, 200)), &storage, &db).await?
         {
             NewAddonMediaModel::Upload {
                 addon_id: addon.id,
@@ -200,9 +189,6 @@ async fn upload_gallery_item(
     storage: StorageService,
     mut multipart: extract::Multipart,
 ) -> Result<JsonResponse<&'static str>> {
-    // TODO: Ensure we have permission
-    let member_uuid = Uuid::nil();
-
     let Some(addon) = AddonModel::find_one_by_guid(guid, &mut *db.acquire().await?).await? else {
         return Err(eyre::eyre!("Addon not found"))?;
     };
@@ -210,9 +196,7 @@ async fn upload_gallery_item(
     let mut models = Vec::new();
 
     while let Some(field) = multipart.next_field().await? {
-        if let Some(model) =
-            upload_file(field, addon.developer_id, member_uuid, None, &storage, &db).await?
-        {
+        if let Some(model) = upload_file(field, addon.member_id, None, &storage, &db).await? {
             let model = NewAddonMediaModel::Upload {
                 addon_id: addon.id,
                 upload_id: model.id,
@@ -229,8 +213,7 @@ async fn upload_gallery_item(
 
 async fn upload_file(
     mut field: Field<'_>,
-    uploader_id: DeveloperId,
-    member_uuid: Uuid,
+    uploader_id: MemberId,
     set_dimensions: Option<(u32, u32)>,
     storage: &StorageService,
     db: &Pool<Sqlite>,
@@ -285,7 +268,7 @@ async fn upload_file(
 
     let store_path = generate_file_name();
 
-    let mut upload = NewMediaUploadModel::pending(uploader_id, member_uuid, store_path.clone())
+    let mut upload = NewMediaUploadModel::pending(uploader_id, store_path.clone())
         .insert(&mut *db.acquire().await?)
         .await?;
 

@@ -9,14 +9,10 @@ use sqlx::{
 };
 
 mod addon;
-mod developer;
-mod developer_member;
 mod media_upload;
 mod settings;
 
 pub use addon::*;
-pub use developer::*;
-pub use developer_member::*;
 pub use media_upload::*;
 pub use settings::*;
 

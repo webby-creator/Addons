@@ -7,7 +7,7 @@ use uuid::Uuid;
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AddonPublic {
-    pub developer_uuid: Uuid,
+    pub creator_uuid: Uuid,
     pub guid: Uuid,
 
     pub name: String,

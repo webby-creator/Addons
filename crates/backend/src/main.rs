@@ -18,26 +18,7 @@ async fn main() -> Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let (is_new, pool) = database::init().await?;
-
-    if is_new {
-        let mut db = pool.acquire().await?;
-
-        let dev = database::NewDeveloperModel {
-            name: String::from("Admin"),
-            description: String::new(),
-            icon: None,
-        }
-        .insert(&mut *db)
-        .await?;
-
-        database::DeveloperMemberModel {
-            developer_id: dev.id,
-            member_guid: uuid::Uuid::nil(),
-        }
-        .insert(&mut *db)
-        .await?;
-    }
+    let (_is_new, pool) = database::init().await?;
 
     http::serve(pool).await?;
 

@@ -33,7 +33,7 @@ pub struct AddonMediaModel {
     pub addon_id: AddonId,
     pub type_of: AddonMediaType,
 
-    pub upload_id: Option<MediaId>,
+    pub uploader_id: Option<MediaId>,
     pub embed_url: Option<String>,
 
     pub idx: i32,
@@ -51,7 +51,7 @@ impl NewAddonMediaModel {
             NewAddonMediaModel::Embed { .. } => AddonMediaType::Embed,
         };
 
-        let (addon_id, upload_id, embed_url) = match self {
+        let (addon_id, uploader_id, embed_url) = match self {
             NewAddonMediaModel::Upload {
                 addon_id,
                 upload_id,
@@ -70,7 +70,7 @@ impl NewAddonMediaModel {
         )
         .bind(addon_id)
         .bind(type_of)
-        .bind(&upload_id)
+        .bind(&uploader_id)
         .bind(&embed_url)
         .bind(now)
         .execute(db)
@@ -80,7 +80,7 @@ impl NewAddonMediaModel {
             id: AddonMediaId::from(res.last_insert_rowid()),
             addon_id,
             type_of,
-            upload_id,
+            uploader_id,
             embed_url,
             idx: -1,
             created_at: now,

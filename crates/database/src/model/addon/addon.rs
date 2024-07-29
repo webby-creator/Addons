@@ -1,4 +1,4 @@
-use common::{api::AddonPublic, AddonId, DeveloperId, MediaId};
+use common::{api::AddonPublic, AddonId, MemberId, MediaId};
 use eyre::Result;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use serde::Serialize;
@@ -7,7 +7,7 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 pub struct NewAddonModel {
-    pub developer_id: DeveloperId,
+    pub member_id: MemberId,
 
     pub name: String,
     pub tag_line: String,
@@ -20,7 +20,7 @@ pub struct NewAddonModel {
 pub struct AddonModel {
     pub id: AddonId,
 
-    pub developer_id: DeveloperId,
+    pub member_id: MemberId,
     pub guid: Uuid,
     // TODO: Secret Key
     // TODO: App URL Redirect After Install (w/ auth code)
@@ -49,9 +49,9 @@ impl NewAddonModel {
         let guid = Uuid::now_v7();
 
         let resp = sqlx::query(
-            "INSERT INTO addon (developer_id, guid, name, tag_line, description, icon, version, is_visible, is_accepted, install_count, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, $10, $10)",
+            "INSERT INTO addon (member_id, guid, name, tag_line, description, icon, version, is_visible, is_accepted, install_count, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, $10, $10)",
         )
-        .bind(self.developer_id)
+        .bind(self.member_id)
         .bind(&guid)
         .bind(&self.name)
         .bind(&self.tag_line)
@@ -66,7 +66,7 @@ impl NewAddonModel {
 
         Ok(AddonModel {
             id: AddonId::from(resp.last_insert_rowid() as i32),
-            developer_id: self.developer_id,
+            member_id: self.member_id,
             guid,
             name: self.name,
             tag_line: self.tag_line,
@@ -87,7 +87,7 @@ impl NewAddonModel {
 impl AddonModel {
     pub async fn find_one_by_guid(guid: Uuid, db: &mut SqliteConnection) -> Result<Option<Self>> {
         Ok(sqlx::query_as(
-            "SELECT id, developer_id, guid, name, tag_line, description, icon, version, is_visible, is_accepted, install_count, delete_reason, created_at, updated_at, deleted_at FROM addon WHERE guid = $1"
+            "SELECT id, member_id, guid, name, tag_line, description, icon, version, is_visible, is_accepted, install_count, delete_reason, created_at, updated_at, deleted_at FROM addon WHERE guid = $1"
         )
         .bind(guid)
         .fetch_optional(db)
@@ -96,7 +96,7 @@ impl AddonModel {
 
     pub async fn find_all(db: &mut SqliteConnection) -> Result<Vec<Self>> {
         Ok(sqlx::query_as(
-            "SELECT id, developer_id, guid, name, tag_line, description, icon, version, is_visible, is_accepted, install_count, delete_reason, created_at, updated_at, deleted_at FROM addon"
+            "SELECT id, member_id, guid, name, tag_line, description, icon, version, is_visible, is_accepted, install_count, delete_reason, created_at, updated_at, deleted_at FROM addon"
         )
         .fetch_all(db)
         .await?)
@@ -115,12 +115,12 @@ impl AddonModel {
 
     pub fn into_public(
         self,
-        developer_uuid: Uuid,
+        creator_uuid: Uuid,
         icon: Option<String>,
         gallery: Option<Vec<String>>,
     ) -> AddonPublic {
         AddonPublic {
-            developer_uuid,
+            creator_uuid,
             guid: self.guid,
             name: self.name,
             tag_line: self.tag_line,

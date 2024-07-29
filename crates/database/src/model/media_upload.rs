@@ -1,13 +1,11 @@
-use common::{DeveloperId, MediaId};
+use common::{MemberId, MediaId};
 use eyre::Result;
 use sqlx::{FromRow, SqliteConnection};
 use time::OffsetDateTime;
-use uuid::Uuid;
 
 #[derive(Debug)]
 pub struct NewMediaUploadModel {
-    pub uploader_id: DeveloperId,
-    pub member_uuid: Uuid,
+    pub uploader_id: MemberId,
 
     pub file_name: String,
     pub file_size: i64,
@@ -28,8 +26,7 @@ pub struct NewMediaUploadModel {
 pub struct MediaUploadModel {
     pub id: MediaId,
 
-    pub uploader_id: DeveloperId,
-    pub member_uuid: Uuid,
+    pub uploader_id: MemberId,
 
     pub file_name: String,
     pub file_size: i64,
@@ -51,10 +48,9 @@ pub struct MediaUploadModel {
 }
 
 impl NewMediaUploadModel {
-    pub fn pending(uploader_id: DeveloperId, member_uuid: Uuid, store_path: String) -> Self {
+    pub fn pending(uploader_id: MemberId, store_path: String) -> Self {
         Self {
             uploader_id,
-            member_uuid,
             file_name: String::new(),
             file_size: 0,
             file_type: String::new(),
@@ -75,11 +71,10 @@ impl NewMediaUploadModel {
 
         let res = sqlx::query(
             r#"
-                INSERT INTO media_upload (uploader_id, member_uuid, file_name, file_size, file_type, media_width, media_height, media_duration, has_thumbnail, store_path, hash, created_at, updated_at)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12)"#,
+                INSERT INTO media_upload (uploader_id, file_name, file_size, file_type, media_width, media_height, media_duration, has_thumbnail, store_path, hash, created_at, updated_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)"#,
         )
         .bind(self.uploader_id)
-        .bind(self.member_uuid)
         .bind(&self.file_name)
         .bind(self.file_size)
         .bind(&self.file_type)
@@ -100,7 +95,6 @@ impl NewMediaUploadModel {
         MediaUploadModel {
             id,
             uploader_id: self.uploader_id,
-            member_uuid: self.member_uuid,
             file_name: self.file_name,
             file_size: self.file_size,
             file_type: self.file_type,
@@ -141,7 +135,7 @@ impl MediaUploadModel {
 
     pub async fn find_one_by_id(id: MediaId, db: &mut SqliteConnection) -> Result<Option<Self>> {
         Ok(sqlx::query_as(
-            r#"SELECT id, uploader_id, member_uuid, file_name, file_size, file_type, media_width, media_height, media_duration, has_thumbnail, store_path, hash, created_at, updated_at, deleted_at
+            r#"SELECT id, uploader_id, file_name, file_size, file_type, media_width, media_height, media_duration, has_thumbnail, store_path, hash, created_at, updated_at, deleted_at
                 FROM media_upload WHERE id = $1"#,
         )
         .bind(id)
@@ -154,7 +148,7 @@ impl MediaUploadModel {
         db: &mut SqliteConnection,
     ) -> Result<Option<Self>> {
         Ok(sqlx::query_as(
-            r#"SELECT id, uploader_id, member_uuid, file_name, file_size, file_type, media_width, media_height, media_duration, has_thumbnail, store_path, hash, created_at, updated_at, deleted_at
+            r#"SELECT id, uploader_id, file_name, file_size, file_type, media_width, media_height, media_duration, has_thumbnail, store_path, hash, created_at, updated_at, deleted_at
                 FROM media_upload WHERE store_path = $1"#,
         )
         .bind(id)
@@ -166,7 +160,7 @@ impl MediaUploadModel {
         // TODO: Better way?
         Ok(sqlx::query_as(
             &format!(
-                r#"SELECT id, uploader_id, member_uuid, file_name, file_size, file_type, media_width, media_height, media_duration, has_thumbnail, store_path, hash, created_at, updated_at, deleted_at
+                r#"SELECT id, uploader_id, file_name, file_size, file_type, media_width, media_height, media_duration, has_thumbnail, store_path, hash, created_at, updated_at, deleted_at
                 FROM media_upload WHERE id IN ({})"#,
                 ids.into_iter().map(|v| v.to_string()).collect::<Vec<_>>().join(",")
             ),
