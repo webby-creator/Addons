@@ -47,6 +47,8 @@ pub async fn serve(pool: Pool<Sqlite>) -> Result<()> {
             .route("/addons", get(get_addon_list))
             .route("/addon", post(new_addon))
             .route("/addon/:guid", get(get_addon))
+            .route("/addon/:guid/dashboard-info", get(get_addon_dashboard_info))
+            .route("/addon/:guid/dashboard/*O", get(get_addon_dashboard_page))
             .route("/addon/:guid/icon", post(upload_icon))
             .route("/addon/:guid/gallery", post(upload_gallery_item))
             .layer(TraceLayer::new_for_http())
@@ -116,6 +118,61 @@ async fn get_addon(
         None,
         None,
     ))))
+}
+
+async fn get_addon_dashboard_info(
+    extract::Path(guid): extract::Path<Uuid>,
+    extract::State(db): extract::State<SqlitePool>,
+) -> Result<JsonResponse<serde_json::Value>> {
+    let Some(_addon) = AddonModel::find_one_by_guid(guid, &mut *db.acquire().await?).await? else {
+        return Err(eyre::eyre!("Addon not found"))?;
+    };
+
+    Ok(Json(WrappingResponse::okay(serde_json::json!({
+        "routes": [
+            { "name": "Overview", "path": "/" },
+            // { "name": "Analytics", "path": "/analytics" },
+        ]
+    }))))
+}
+
+async fn get_addon_dashboard_page(
+    extract::Path((guid, path)): extract::Path<(Uuid, String)>,
+    extract::State(db): extract::State<SqlitePool>,
+) -> Result<impl IntoResponse> {
+    let Some(addon) = AddonModel::find_one_by_guid(guid, &mut *db.acquire().await?).await? else {
+        return Err(eyre::eyre!("Addon not found"))?;
+    };
+
+    let mut files = tokio::fs::read_dir("./crates/blog/dashboard/dist/assets").await?;
+
+    let resp_builder = axum::response::Response::builder()
+        .status(hyper::StatusCode::OK)
+        .header(
+            hyper::header::CONTENT_TYPE,
+            mime_guess::mime::TEXT_PLAIN_UTF_8.as_ref(),
+        );
+
+    while let Some(entry) = files.next_entry().await? {
+        let meta = entry.metadata().await?;
+
+        if meta.is_file() {
+            if entry.file_name().to_string_lossy().ends_with(".js") {
+                let contents = tokio::fs::read_to_string(entry.path()).await?;
+
+                return Ok(resp_builder
+                    .header(
+                        hyper::header::CONTENT_TYPE,
+                        mime_guess::mime::TEXT_JAVASCRIPT.as_ref(),
+                    )
+                    .body(contents)
+                    .unwrap()
+                    .into_response());
+            }
+        }
+    }
+
+    Ok(resp_builder.body(String::new()).unwrap().into_response())
 }
 
 #[derive(serde::Deserialize)]

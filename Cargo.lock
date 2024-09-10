@@ -26,7 +26,7 @@ dependencies = [
  "tokio",
  "tower",
  "tower-http",
- "tower-sessions",
+ "tower-sessions 0.12.2",
  "tower-sessions-sqlx-store",
  "tracing",
  "tracing-subscriber",
@@ -281,7 +281,7 @@ dependencies = [
  "tower-cookies",
  "tower-layer",
  "tower-service",
- "tower-sessions",
+ "tower-sessions 0.12.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "tracing",
  "urlencoding",
 ]
@@ -3256,6 +3256,22 @@ name = "tower-service"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6bc1c9ce2b5135ac7f93c72918fc37feb872bdc6a5533a8b85eb4b86bfdae52"
+
+[[package]]
+name = "tower-sessions"
+version = "0.12.2"
+dependencies = [
+ "async-trait",
+ "http",
+ "time",
+ "tokio",
+ "tower-cookies",
+ "tower-layer",
+ "tower-service",
+ "tower-sessions-core",
+ "tower-sessions-memory-store",
+ "tracing",
+]
 
 [[package]]
 name = "tower-sessions"

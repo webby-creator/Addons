@@ -10,7 +10,7 @@ common = { path = "../common" }
 hyper = "1.4"
 axum = { version = "0.7", features = ["multipart"] }
 tower-sessions-sqlx-store = { version = "0.13", features = ["sqlite"] }
-tower-sessions = "0.12"
+tower-sessions = { path = "../../../tower-sessions" }
 axum-login = "0.15"
 axum-extra = { version = "0.9", features = ["typed-header"] }
 tower = { version = "0.4", features = ["util"] }

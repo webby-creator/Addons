@@ -1,0 +1,29 @@
+[package]
+name = "Blog"
+version = "0.0.1"
+# description, icon, etc..
+
+[dashboard]
+path = "./dashboard"
+
+# TODO: Add Name, Permissions, etc..
+[dashboard.routes.home]
+route = "/"
+
+[dashboard.routes.analytics]
+route = "/analytics"
+
+[dashboard.routes.categories]
+route = "/categories"
+
+[dashboard.routes.comments]
+route = "/comments"
+
+[dashboard.routes.create-post]
+route = "/create-post"
+
+[dashboard.routes.posts]
+route = "/posts"
+
+[dashboard.routes.tags]
+route = "/tags"
