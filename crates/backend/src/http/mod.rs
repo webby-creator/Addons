@@ -144,7 +144,7 @@ async fn get_addon_dashboard_page(
         return Err(eyre::eyre!("Addon not found"))?;
     };
 
-    let mut files = tokio::fs::read_dir("./crates/blog/dashboard/dist/assets").await?;
+    let mut files = tokio::fs::read_dir("../addon-blog/dashboard/dist/assets").await?;
 
     let resp_builder = axum::response::Response::builder()
         .status(hyper::StatusCode::OK)
