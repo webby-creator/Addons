@@ -10,6 +10,8 @@ pub struct AddonPublic {
     pub creator_uuid: Uuid,
     pub guid: Uuid,
 
+    pub permissions: Vec<String>,
+
     pub name: String,
     pub tag_line: String,
     pub description: String,

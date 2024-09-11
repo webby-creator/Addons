@@ -1,0 +1,1 @@
+ALTER TABLE addon ADD COLUMN member_uuid TEXT;

@@ -1,4 +1,4 @@
-use common::{api::AddonPublic, AddonId, MemberId, MediaId};
+use common::{api::AddonPublic, AddonId, MediaId, MemberId};
 use eyre::Result;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use serde::Serialize;
@@ -8,12 +8,15 @@ use uuid::Uuid;
 
 pub struct NewAddonModel {
     pub member_id: MemberId,
+    pub member_uuid: Uuid,
 
     pub name: String,
     pub tag_line: String,
     pub description: String,
     pub icon: Option<MediaId>,
     pub version: String,
+
+    pub action_url: Option<String>,
 }
 
 #[derive(FromRow, Serialize)]
@@ -21,6 +24,8 @@ pub struct AddonModel {
     pub id: AddonId,
 
     pub member_id: MemberId,
+    pub member_uuid: Uuid,
+
     pub guid: Uuid,
     // TODO: Secret Key
     // TODO: App URL Redirect After Install (w/ auth code)
@@ -30,6 +35,8 @@ pub struct AddonModel {
     pub description: String,
     pub icon: Option<MediaId>,
     pub version: String,
+
+    pub action_url: Option<String>,
 
     pub is_visible: bool,
     pub is_accepted: bool,
@@ -49,15 +56,17 @@ impl NewAddonModel {
         let guid = Uuid::now_v7();
 
         let resp = sqlx::query(
-            "INSERT INTO addon (member_id, guid, name, tag_line, description, icon, version, is_visible, is_accepted, install_count, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, $10, $10)",
+            "INSERT INTO addon (member_id, member_uuid, guid, name, tag_line, description, icon, version, action_url, is_visible, is_accepted, install_count, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10, $11, $12, $12)",
         )
         .bind(self.member_id)
+        .bind(self.member_uuid)
         .bind(&guid)
         .bind(&self.name)
         .bind(&self.tag_line)
         .bind(&self.description)
         .bind(&self.icon)
         .bind(&self.version)
+        .bind(&self.action_url)
         .bind(false)
         .bind(0)
         .bind(now)
@@ -67,12 +76,14 @@ impl NewAddonModel {
         Ok(AddonModel {
             id: AddonId::from(resp.last_insert_rowid() as i32),
             member_id: self.member_id,
+            member_uuid: self.member_uuid,
             guid,
             name: self.name,
             tag_line: self.tag_line,
             description: self.description,
             icon: self.icon,
             version: self.version,
+            action_url: self.action_url,
             is_accepted: false,
             is_visible: false,
             install_count: 0,
@@ -87,7 +98,7 @@ impl NewAddonModel {
 impl AddonModel {
     pub async fn find_one_by_guid(guid: Uuid, db: &mut SqliteConnection) -> Result<Option<Self>> {
         Ok(sqlx::query_as(
-            "SELECT id, member_id, guid, name, tag_line, description, icon, version, is_visible, is_accepted, install_count, delete_reason, created_at, updated_at, deleted_at FROM addon WHERE guid = $1"
+            "SELECT id, member_id, member_uuid, guid, name, tag_line, description, icon, version, action_url, is_visible, is_accepted, install_count, delete_reason, created_at, updated_at, deleted_at FROM addon WHERE guid = $1"
         )
         .bind(guid)
         .fetch_optional(db)
@@ -96,7 +107,7 @@ impl AddonModel {
 
     pub async fn find_all(db: &mut SqliteConnection) -> Result<Vec<Self>> {
         Ok(sqlx::query_as(
-            "SELECT id, member_id, guid, name, tag_line, description, icon, version, is_visible, is_accepted, install_count, delete_reason, created_at, updated_at, deleted_at FROM addon"
+            "SELECT id, member_id, member_uuid, guid, name, tag_line, description, icon, version, action_url, is_visible, is_accepted, install_count, delete_reason, created_at, updated_at, deleted_at FROM addon"
         )
         .fetch_all(db)
         .await?)
@@ -115,16 +126,17 @@ impl AddonModel {
 
     pub fn into_public(
         self,
-        creator_uuid: Uuid,
         icon: Option<String>,
         gallery: Option<Vec<String>>,
+        permissions: Vec<String>,
     ) -> AddonPublic {
         AddonPublic {
-            creator_uuid,
+            creator_uuid: self.member_uuid,
             guid: self.guid,
             name: self.name,
             tag_line: self.tag_line,
             description: self.description,
+            permissions,
             icon,
             gallery,
             version: self.version,

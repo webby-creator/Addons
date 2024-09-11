@@ -1,3 +1,5 @@
+use std::fmt::Write as _;
+
 pub mod api;
 pub mod generate;
 mod id;
@@ -8,6 +10,29 @@ use serde::{Deserialize, Serialize};
 
 #[macro_use]
 extern crate log;
+
+pub struct AddonPermission {
+    pub scope: String,
+    pub category: String,
+    pub operation: Option<String>,
+    pub info: Option<String>,
+}
+
+impl ToString for AddonPermission {
+    fn to_string(&self) -> String {
+        let mut value = format!("{}.{}", self.scope, self.category);
+
+        if let Some(val) = self.operation.as_deref() {
+            write!(&mut value, ".{val}").unwrap();
+        }
+
+        if let Some(val) = self.info.as_deref() {
+            write!(&mut value, ".{val}").unwrap();
+        }
+
+        value
+    }
+}
 
 #[derive(Debug, Serialize, PartialEq, Deserialize, Clone)]
 pub struct ListResponse<T> {

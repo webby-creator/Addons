@@ -16,7 +16,8 @@ use common::{
     ListResponse, MemberId, WrappingResponse,
 };
 use database::{
-    AddonModel, MediaUploadModel, NewAddonMediaModel, NewAddonModel, NewMediaUploadModel,
+    AddonModel, AddonPermissionModel, MediaUploadModel, NewAddonMediaModel, NewAddonModel,
+    NewMediaUploadModel,
 };
 use futures::TryStreamExt;
 use serde::Deserialize;
@@ -79,7 +80,7 @@ async fn get_addon_list(
                 total: addons.len(),
                 items: addons
                     .into_iter()
-                    .map(|a| a.into_public(Uuid::nil(), None, None))
+                    .map(|a| a.into_public(None, None, Vec::new()))
                     .collect(),
             }))
             .into_response())
@@ -95,7 +96,7 @@ async fn get_addon_list(
                 total: addons.len(),
                 items: addons
                     .into_iter()
-                    .map(|a| a.into_public(Uuid::nil(), None, None))
+                    .map(|a| a.into_public(None, None, Vec::new()))
                     .collect(),
             }))
             .into_response())
@@ -109,14 +110,18 @@ async fn get_addon(
     extract::Path(guid): extract::Path<Uuid>,
     extract::State(db): extract::State<SqlitePool>,
 ) -> Result<JsonResponse<AddonPublic>> {
-    let Some(addon) = AddonModel::find_one_by_guid(guid, &mut *db.acquire().await?).await? else {
+    let mut acq = db.acquire().await?;
+
+    let Some(addon) = AddonModel::find_one_by_guid(guid, &mut *acq).await? else {
         return Err(eyre::eyre!("Addon not found"))?;
     };
 
+    let perms = AddonPermissionModel::find_by_addon_id(addon.id, &mut *acq).await?;
+
     Ok(Json(WrappingResponse::okay(addon.into_public(
-        Uuid::nil(),
         None,
         None,
+        perms.into_iter().map(|p| p.perm.to_string()).collect(),
     ))))
 }
 
@@ -194,11 +199,13 @@ async fn new_addon(
 ) -> Result<JsonResponse<AddonPublic>> {
     let addon = NewAddonModel {
         member_id: MemberId::from(1),
+        member_uuid: Uuid::nil(),
         name: title,
         tag_line: tagline,
         description,
         icon: None,
         version: String::new(),
+        action_url: None,
     }
     .insert(&mut *db.acquire().await?)
     .await?;
@@ -206,9 +213,9 @@ async fn new_addon(
     //
 
     Ok(Json(WrappingResponse::okay(addon.into_public(
-        Uuid::nil(),
         None,
         None,
+        Vec::new(),
     ))))
 }
 
