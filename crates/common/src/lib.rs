@@ -1,3 +1,6 @@
+#[macro_use]
+extern crate log;
+
 use std::fmt::Write as _;
 
 pub mod api;
@@ -10,8 +13,13 @@ use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-#[macro_use]
-extern crate log;
+#[derive(Serialize, Deserialize)]
+pub struct DashboardPageInfo {
+    #[serde(rename = "type")]
+    pub type_of: String,
+    pub name: String,
+    pub path: String,
+}
 
 #[derive(Serialize, Deserialize)]
 pub struct MemberModel {

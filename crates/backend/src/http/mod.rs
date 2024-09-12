@@ -16,11 +16,11 @@ use common::{
         get_full_file_path, get_next_uploading_file_path, get_thumb_file_path,
         read_and_upload_data, register_b2, StorageService,
     },
-    MemberId, MemberModel, WebsiteModel,
+    DashboardPageInfo, MemberId, MemberModel, WebsiteModel,
 };
 use database::{
-    AddonInstance, AddonModel, AddonPermissionModel, MediaUploadModel, NewAddonInstance,
-    NewAddonMediaModel, NewAddonModel, NewMediaUploadModel,
+    AddonDashboardPage, AddonInstance, AddonModel, AddonPermissionModel, MediaUploadModel,
+    NewAddonInstance, NewAddonMediaModel, NewAddonModel, NewMediaUploadModel,
 };
 use futures::TryStreamExt;
 use lazy_static::lazy_static;
@@ -51,6 +51,7 @@ pub async fn serve(pool: Pool<Sqlite>) -> Result<()> {
         listener,
         Router::new()
             .route("/list-active/:website", get(get_active_addon_list))
+            .route("/dashboard-pages/:website", get(get_dashboard_pages))
             .route("/addons", get(get_addon_list))
             .route("/addon", post(new_addon))
             .route("/addon/:guid", get(get_addon))
@@ -66,6 +67,38 @@ pub async fn serve(pool: Pool<Sqlite>) -> Result<()> {
     .await?;
 
     Ok(())
+}
+
+async fn get_dashboard_pages(
+    extract::Path(website): extract::Path<Uuid>,
+    extract::State(db): extract::State<SqlitePool>,
+) -> Result<JsonListResponse<serde_json::Value>> {
+    let active = AddonInstance::find_by_website_uuid(website, &mut *db.acquire().await?).await?;
+
+    let mut items = Vec::new();
+
+    for instance in active {
+        let addon = AddonModel::find_one_by_id(instance.addon_id, &mut *db.acquire().await?)
+            .await?
+            .unwrap();
+
+        if addon.deleted_at.is_some() {
+            continue;
+        }
+
+        let pages = AddonDashboardPage::find_by_id(addon.id, &mut *db.acquire().await?).await?;
+
+        // TODO: Return if its' an SPA incl. a hash for the page incase we're using multiple SPA's so we know if we have to re-fetch the data.
+
+        items.push(serde_json::json!({
+            "name": addon.name,
+            "icon": addon.icon,
+            "guid": addon.guid,
+            "pages": pages.into_iter().map(|p| p.into()).collect::<Vec<DashboardPageInfo>>(),
+        }));
+    }
+
+    Ok(Json(WrappingResponse::okay(ListResponse::all(items))))
 }
 
 async fn get_active_addon_list(
