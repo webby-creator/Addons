@@ -96,6 +96,15 @@ impl NewAddonModel {
 }
 
 impl AddonModel {
+    pub async fn find_one_by_id(id: AddonId, db: &mut SqliteConnection) -> Result<Option<Self>> {
+        Ok(sqlx::query_as(
+            "SELECT id, member_id, member_uuid, guid, name, tag_line, description, icon, version, action_url, is_visible, is_accepted, install_count, delete_reason, created_at, updated_at, deleted_at FROM addon WHERE id = $1"
+        )
+        .bind(id)
+        .fetch_optional(db)
+        .await?)
+    }
+
     pub async fn find_one_by_guid(guid: Uuid, db: &mut SqliteConnection) -> Result<Option<Self>> {
         Ok(sqlx::query_as(
             "SELECT id, member_id, member_uuid, guid, name, tag_line, description, icon, version, action_url, is_visible, is_accepted, install_count, delete_reason, created_at, updated_at, deleted_at FROM addon WHERE guid = $1"

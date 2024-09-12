@@ -1,6 +1,8 @@
 use std::{borrow::Cow, net::SocketAddr};
 
-use addon_common::{InstallResponse, JsonResponse, ListResponse, WrappingResponse};
+use addon_common::{
+    InstallResponse, JsonListResponse, JsonResponse, ListResponse, WrappingResponse,
+};
 use axum::{
     extract::{self, multipart::Field},
     response::{IntoResponse, Response},
@@ -17,8 +19,8 @@ use common::{
     MemberId, MemberModel, WebsiteModel,
 };
 use database::{
-    AddonModel, AddonPermissionModel, MediaUploadModel, NewAddonInstance, NewAddonMediaModel,
-    NewAddonModel, NewMediaUploadModel,
+    AddonInstance, AddonModel, AddonPermissionModel, MediaUploadModel, NewAddonInstance,
+    NewAddonMediaModel, NewAddonModel, NewMediaUploadModel,
 };
 use futures::TryStreamExt;
 use lazy_static::lazy_static;
@@ -48,6 +50,7 @@ pub async fn serve(pool: Pool<Sqlite>) -> Result<()> {
     axum::serve(
         listener,
         Router::new()
+            .route("/list-active/:website", get(get_active_addon_list))
             .route("/addons", get(get_addon_list))
             .route("/addon", post(new_addon))
             .route("/addon/:guid", get(get_addon))
@@ -63,6 +66,25 @@ pub async fn serve(pool: Pool<Sqlite>) -> Result<()> {
     .await?;
 
     Ok(())
+}
+
+async fn get_active_addon_list(
+    extract::Path(website): extract::Path<Uuid>,
+    extract::State(db): extract::State<SqlitePool>,
+) -> Result<JsonListResponse<AddonPublic>> {
+    let active = AddonInstance::find_by_website_uuid(website, &mut *db.acquire().await?).await?;
+
+    let mut items = Vec::new();
+
+    for instance in active {
+        let addon = AddonModel::find_one_by_id(instance.addon_id, &mut *db.acquire().await?)
+            .await?
+            .unwrap();
+
+        items.push(addon.into_public(None, None, Vec::new()));
+    }
+
+    Ok(Json(WrappingResponse::okay(ListResponse::all(items))))
 }
 
 // TODO: Route: (User) Uninstall
@@ -105,6 +127,7 @@ async fn post_addon_install_user(
 
         // 1. Insert Website Addon
         let mut inst = NewAddonInstance {
+            addon_id: addon.id,
             website_id: value.website.id,
             website_uuid: value.website_id,
         }

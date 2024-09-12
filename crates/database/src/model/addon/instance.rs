@@ -1,10 +1,12 @@
 /// Instances of addons used on websites
-use common::{AddonInstanceId, WebsiteId};
+use common::{AddonId, AddonInstanceId, WebsiteId};
 use sqlx::{FromRow, Result, SqliteConnection};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
 pub struct NewAddonInstance {
+    pub addon_id: AddonId,
+
     pub website_id: WebsiteId,
     pub website_uuid: Uuid,
 }
@@ -13,6 +15,8 @@ pub struct NewAddonInstance {
 pub struct AddonInstance {
     pub id: AddonInstanceId,
     pub public_id: Uuid,
+
+    pub addon_id: AddonId,
 
     pub website_id: WebsiteId,
     pub website_uuid: Uuid,
@@ -33,9 +37,10 @@ impl NewAddonInstance {
         let now = OffsetDateTime::now_utc();
 
         let resp = sqlx::query(
-            "INSERT INTO addon_instance (public_id, website_id, website_uuid, created_at, updated_at) VALUES ($1, $2, $3, $4, $4)",
+            "INSERT INTO addon_instance (public_id, addon_id, website_id, website_uuid, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $5)",
         )
             .bind(public_id)
+            .bind(self.addon_id)
             .bind(self.website_id)
             .bind(self.website_uuid)
             .bind(now)
@@ -45,6 +50,7 @@ impl NewAddonInstance {
         Ok(AddonInstance {
             id: AddonInstanceId::from(resp.last_insert_rowid()),
             public_id,
+            addon_id: self.addon_id,
             website_id: self.website_id,
             website_uuid: self.website_uuid,
             is_setup: false,
@@ -73,10 +79,19 @@ impl AddonInstance {
 
     pub async fn find_by_uuid(uuid: Uuid, db: &mut SqliteConnection) -> Result<Option<Self>> {
         Ok(sqlx::query_as(
-            "SELECT id, public_id, website_id, website_uuid, delete_reason, created_at, updated_at, deleted_at FROM addon_instance WHERE public_id = $1",
+            "SELECT id, public_id, addon_id, website_id, website_uuid, is_setup, delete_reason, created_at, updated_at, deleted_at FROM addon_instance WHERE public_id = $1",
         )
         .bind(uuid)
         .fetch_optional(db)
+        .await?)
+    }
+
+    pub async fn find_by_website_uuid(uuid: Uuid, db: &mut SqliteConnection) -> Result<Vec<Self>> {
+        Ok(sqlx::query_as(
+            "SELECT id, public_id, addon_id, website_id, website_uuid, is_setup, delete_reason, created_at, updated_at, deleted_at FROM addon_instance WHERE website_uuid = $1",
+        )
+        .bind(uuid)
+        .fetch_all(db)
         .await?)
     }
 
