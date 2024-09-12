@@ -48,6 +48,20 @@ impl AddonPermissionModel {
         .await?)
     }
 
+    pub async fn find_by_scope_addon_id(
+        id: AddonId,
+        scope: &str,
+        db: &mut SqliteConnection,
+    ) -> Result<Vec<Self>> {
+        Ok(sqlx::query_as(
+            "SELECT addon_id, scope, category, operation, info FROM addon_permission WHERE addon_id = $1 AND scope = $2",
+        )
+        .bind(id)
+        .bind(scope)
+        .fetch_all(db)
+        .await?)
+    }
+
     pub async fn delete_by_addon_id(id: AddonId, db: &mut SqliteConnection) -> Result<u64> {
         let res = sqlx::query("DELETE FROM addon_permission WHERE addon_id = $1")
             .bind(id)

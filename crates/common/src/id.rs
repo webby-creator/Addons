@@ -86,6 +86,7 @@ macro_rules! create_id {
 
 // External Member
 create_id!(MemberId, i32);
+create_id!(WebsiteId, i32);
 
 create_id!(AddonId, i32);
 create_id!(AddonTagId, i32);
@@ -96,3 +97,4 @@ create_id!(AddonPageContentId, i32);
 create_id!(TagId, i64);
 create_id!(MediaId, i64);
 create_id!(AddonMediaId, i64);
+create_id!(AddonInstanceId, i64);

@@ -7,9 +7,45 @@ pub mod upload;
 
 pub use id::*;
 use serde::{Deserialize, Serialize};
+use time::OffsetDateTime;
+use uuid::Uuid;
 
 #[macro_use]
 extern crate log;
+
+#[derive(Serialize, Deserialize)]
+pub struct MemberModel {
+    pub id: MemberId,
+
+    pub uuid: Uuid,
+
+    pub role: i64,
+
+    pub tag: String,
+    pub display_name: String,
+
+    pub email: String,
+
+    pub created_at: OffsetDateTime,
+    pub updated_at: OffsetDateTime,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct WebsiteModel {
+    pub id: WebsiteId,
+
+    pub owner_id: MemberId,
+
+    pub public_id: String,
+
+    pub name: String,
+    /// If URL starts with '/' it is relative to the domain
+    pub url: Option<String>,
+    pub theme_id: i32,
+
+    pub created_at: OffsetDateTime,
+    pub updated_at: OffsetDateTime,
+}
 
 pub struct AddonPermission {
     pub scope: String,

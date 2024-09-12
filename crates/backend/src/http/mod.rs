@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use std::{borrow::Cow, net::SocketAddr};
 
 use axum::{
     extract::{self, multipart::Field},
@@ -13,13 +13,15 @@ use common::{
         get_full_file_path, get_next_uploading_file_path, get_thumb_file_path,
         read_and_upload_data, register_b2, StorageService,
     },
-    ListResponse, MemberId, WrappingResponse,
+    ListResponse, MemberId, MemberModel, WebsiteModel, WrappingResponse,
 };
 use database::{
     AddonModel, AddonPermissionModel, MediaUploadModel, NewAddonMediaModel, NewAddonModel,
     NewMediaUploadModel,
 };
 use futures::TryStreamExt;
+use hyper::HeaderMap;
+use lazy_static::lazy_static;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use sqlx::{Pool, Sqlite, SqlitePool};
@@ -31,6 +33,10 @@ use crate::Result;
 
 pub type JsonResponse<T> = Json<WrappingResponse<T>>;
 pub type JsonListResponse<T> = Json<WrappingResponse<ListResponse<T>>>;
+
+lazy_static! {
+    static ref CLIENT: reqwest::Client = reqwest::Client::new();
+}
 
 pub async fn serve(pool: Pool<Sqlite>) -> Result<()> {
     let port = 5950;
@@ -48,6 +54,7 @@ pub async fn serve(pool: Pool<Sqlite>) -> Result<()> {
             .route("/addons", get(get_addon_list))
             .route("/addon", post(new_addon))
             .route("/addon/:guid", get(get_addon))
+            .route("/addon/:guid/install", post(post_addon_install))
             .route("/addon/:guid/dashboard-info", get(get_addon_dashboard_info))
             .route("/addon/:guid/dashboard/*O", get(get_addon_dashboard_page))
             .route("/addon/:guid/icon", post(upload_icon))
@@ -59,6 +66,67 @@ pub async fn serve(pool: Pool<Sqlite>) -> Result<()> {
     .await?;
 
     Ok(())
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AddonInstall {
+    website_id: uuid::Uuid,
+    member_id: uuid::Uuid,
+
+    // TODO: Both of these are said Models'
+    member: MemberModel,
+    website: WebsiteModel,
+}
+
+async fn post_addon_install(
+    extract::Path(guid): extract::Path<Uuid>,
+    extract::State(db): extract::State<SqlitePool>,
+    extract::Json(value): extract::Json<AddonInstall>,
+) -> Result<JsonResponse<Cow<'static, str>>> {
+    let mut acq = db.acquire().await?;
+
+    // let from_server = headers.get("x-server-ip").expect("Expected Server Origin IP")
+    //     .to_str().unwrap().to_string();
+    // debug!("{from_server}");
+
+    let Some(addon) = AddonModel::find_one_by_guid(guid, &mut *acq).await? else {
+        return Err(eyre::eyre!("Addon not found"))?;
+    };
+
+    // TODO: Check if website already has addon installed
+    // TODO: Ensure member_id is owner of website or has admin
+
+    if let Some(url) = addon.action_url {
+        // TODO: Utilize perms
+        let _perms =
+            AddonPermissionModel::find_by_scope_addon_id(addon.id, "member", &mut *acq).await?;
+
+        //
+
+        let _resp = CLIENT
+            .post(url)
+            .json(&serde_json::json!({
+                "instanceId": Uuid::now_v7(),
+
+                "ownerId": value.member_id,
+                "websiteId": value.website_id,
+
+                // TODO: Use Permissions
+                "member": value.member,
+                "website": value.website,
+            }))
+            .send()
+            .await?;
+
+        if _resp.status().is_success() {
+            Ok(Json(WrappingResponse::okay(Cow::Borrowed("ok"))))
+        } else {
+            Ok(Json(_resp.json().await?))
+        }
+    } else {
+        Ok(Json(WrappingResponse::error("Addon is missing Action URL")))
+    }
 }
 
 #[derive(Deserialize)]

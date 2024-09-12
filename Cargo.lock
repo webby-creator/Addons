@@ -15,8 +15,10 @@ dependencies = [
  "futures",
  "hyper",
  "image",
+ "lazy_static",
  "mime_guess",
  "num_enum",
+ "reqwest",
  "serde",
  "serde_json",
  "sha2",
@@ -30,6 +32,7 @@ dependencies = [
  "tower-sessions-sqlx-store",
  "tracing",
  "tracing-subscriber",
+ "url",
  "uuid",
 ]
 

@@ -27,6 +27,10 @@ pub enum Error {
 
     #[error("UUID Error: {0}")]
     UUID(#[from] uuid::Error),
+    #[error("Url Error: {0}")]
+    Url(#[from] url::ParseError),
+    #[error("Reqwest Error: {0}")]
+    Reqwest(#[from] reqwest::Error),
 
     #[error("Multipart Error: {0}")]
     Multipart(#[from] axum::extract::multipart::MultipartError),
