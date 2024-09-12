@@ -10,7 +10,9 @@ dependencies = [
  "log",
  "serde",
  "thiserror",
+ "time",
  "url",
+ "uuid",
 ]
 
 [[package]]
