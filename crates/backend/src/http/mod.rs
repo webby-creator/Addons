@@ -132,17 +132,19 @@ async fn post_addon_install_user(
             //  - Could want to redirect the user to finish on another site.
             //  - Could be finished now
             //  - Could be step 1 and require multiple setup requests & permission steps.
-            let resp: InstallResponse = resp.json().await?;
+            let resp: WrappingResponse<InstallResponse> = resp.json().await?;
 
             match resp {
-                InstallResponse::Complete => {
+                WrappingResponse::Resp(InstallResponse::Complete) => {
                     inst.is_setup = true;
                     inst.update(&mut *acq).await?;
                 }
 
-                InstallResponse::Redirect(url) => {
+                WrappingResponse::Resp(InstallResponse::Redirect(url)) => {
                     // TODO
                 }
+
+                WrappingResponse::Error(e) => return Ok(Json(WrappingResponse::Error(e))),
             }
 
             Ok(Json(WrappingResponse::okay(Cow::Borrowed("ok"))))
