@@ -16,11 +16,10 @@ use common::{
     ListResponse, MemberId, MemberModel, WebsiteModel, WrappingResponse,
 };
 use database::{
-    AddonModel, AddonPermissionModel, MediaUploadModel, NewAddonMediaModel, NewAddonModel,
-    NewMediaUploadModel,
+    AddonModel, AddonPermissionModel, MediaUploadModel, NewAddonInstance, NewAddonMediaModel,
+    NewAddonModel, NewMediaUploadModel,
 };
 use futures::TryStreamExt;
-use hyper::HeaderMap;
 use lazy_static::lazy_static;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -54,7 +53,7 @@ pub async fn serve(pool: Pool<Sqlite>) -> Result<()> {
             .route("/addons", get(get_addon_list))
             .route("/addon", post(new_addon))
             .route("/addon/:guid", get(get_addon))
-            .route("/addon/:guid/install", post(post_addon_install))
+            .route("/addon/:guid/install", post(post_addon_install_user))
             .route("/addon/:guid/dashboard-info", get(get_addon_dashboard_info))
             .route("/addon/:guid/dashboard/*O", get(get_addon_dashboard_page))
             .route("/addon/:guid/icon", post(upload_icon))
@@ -68,6 +67,10 @@ pub async fn serve(pool: Pool<Sqlite>) -> Result<()> {
     Ok(())
 }
 
+// TODO: Route: (User) Uninstall
+// TODO: Route: (User) Resume Install
+// TODO: Route: (Addon) Instance Install Complete
+
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AddonInstall {
@@ -79,7 +82,7 @@ struct AddonInstall {
     website: WebsiteModel,
 }
 
-async fn post_addon_install(
+async fn post_addon_install_user(
     extract::Path(guid): extract::Path<Uuid>,
     extract::State(db): extract::State<SqlitePool>,
     extract::Json(value): extract::Json<AddonInstall>,
@@ -102,12 +105,19 @@ async fn post_addon_install(
         let _perms =
             AddonPermissionModel::find_by_scope_addon_id(addon.id, "member", &mut *acq).await?;
 
-        //
+        // 1. Insert Website Addon
+        let mut inst = NewAddonInstance {
+            website_id: value.website.id,
+            website_uuid: value.website_id,
+        }
+        .insert(&mut *acq)
+        .await?;
 
-        let _resp = CLIENT
+        // 2. Send install request
+        let resp = CLIENT
             .post(url)
             .json(&serde_json::json!({
-                "instanceId": Uuid::now_v7(),
+                "instanceId": inst.public_id,
 
                 "ownerId": value.member_id,
                 "websiteId": value.website_id,
@@ -119,10 +129,19 @@ async fn post_addon_install(
             .send()
             .await?;
 
-        if _resp.status().is_success() {
+        if resp.status().is_success() {
+            // 3. Get Response - Can have multiple resolutions.
+            //  - Could want to redirect the user to finish on another site.
+            //  - Could be finished now
+            //  - Could be step 1 and require multiple setup requests & permission steps.
+            let _value: serde_json::Value = resp.json().await?;
+
+            inst.is_setup = true;
+            inst.update(&mut *acq).await?;
+
             Ok(Json(WrappingResponse::okay(Cow::Borrowed("ok"))))
         } else {
-            Ok(Json(_resp.json().await?))
+            Ok(Json(resp.json().await?))
         }
     } else {
         Ok(Json(WrappingResponse::error("Addon is missing Action URL")))
@@ -210,10 +229,10 @@ async fn get_addon_dashboard_info(
 }
 
 async fn get_addon_dashboard_page(
-    extract::Path((guid, path)): extract::Path<(Uuid, String)>,
+    extract::Path((guid, _path)): extract::Path<(Uuid, String)>,
     extract::State(db): extract::State<SqlitePool>,
 ) -> Result<impl IntoResponse> {
-    let Some(addon) = AddonModel::find_one_by_guid(guid, &mut *db.acquire().await?).await? else {
+    let Some(_addon) = AddonModel::find_one_by_guid(guid, &mut *db.acquire().await?).await? else {
         return Err(eyre::eyre!("Addon not found"))?;
     };
 
