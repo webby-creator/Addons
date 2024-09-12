@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+addon-common = { path = "../../../addon-common" }
 database = { path = "../database" }
 common = { path = "../common" }
 

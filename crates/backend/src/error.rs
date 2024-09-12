@@ -1,5 +1,5 @@
+use addon_common::WrappingResponse;
 use axum::response::{IntoResponse, Json, Response};
-use common::WrappingResponse;
 use hyper::StatusCode;
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;

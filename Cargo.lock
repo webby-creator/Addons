@@ -3,9 +3,21 @@
 version = 3
 
 [[package]]
+name = "addon-common"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "log",
+ "serde",
+ "thiserror",
+ "url",
+]
+
+[[package]]
 name = "addons-backend"
 version = "0.1.0"
 dependencies = [
+ "addon-common",
  "axum",
  "axum-extra",
  "axum-login",

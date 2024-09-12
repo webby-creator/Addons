@@ -1,5 +1,6 @@
 use std::{borrow::Cow, net::SocketAddr};
 
+use addon_common::{InstallResponse, JsonResponse, ListResponse, WrappingResponse};
 use axum::{
     extract::{self, multipart::Field},
     response::{IntoResponse, Response},
@@ -13,7 +14,7 @@ use common::{
         get_full_file_path, get_next_uploading_file_path, get_thumb_file_path,
         read_and_upload_data, register_b2, StorageService,
     },
-    ListResponse, MemberId, MemberModel, WebsiteModel, WrappingResponse,
+    MemberId, MemberModel, WebsiteModel,
 };
 use database::{
     AddonModel, AddonPermissionModel, MediaUploadModel, NewAddonInstance, NewAddonMediaModel,
@@ -29,9 +30,6 @@ use tower_http::trace::TraceLayer;
 use uuid::Uuid;
 
 use crate::Result;
-
-pub type JsonResponse<T> = Json<WrappingResponse<T>>;
-pub type JsonListResponse<T> = Json<WrappingResponse<ListResponse<T>>>;
 
 lazy_static! {
     static ref CLIENT: reqwest::Client = reqwest::Client::new();
@@ -134,10 +132,18 @@ async fn post_addon_install_user(
             //  - Could want to redirect the user to finish on another site.
             //  - Could be finished now
             //  - Could be step 1 and require multiple setup requests & permission steps.
-            let _value: serde_json::Value = resp.json().await?;
+            let resp: InstallResponse = resp.json().await?;
 
-            inst.is_setup = true;
-            inst.update(&mut *acq).await?;
+            match resp {
+                InstallResponse::Complete => {
+                    inst.is_setup = true;
+                    inst.update(&mut *acq).await?;
+                }
+
+                InstallResponse::Redirect(url) => {
+                    // TODO
+                }
+            }
 
             Ok(Json(WrappingResponse::okay(Cow::Borrowed("ok"))))
         } else {
