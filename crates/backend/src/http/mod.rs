@@ -31,6 +31,9 @@ use tokio::{fs::OpenOptions, io::AsyncWriteExt, net::TcpListener};
 use tower_http::trace::TraceLayer;
 use uuid::Uuid;
 
+// TODO: Common between Main Website & Addon
+pub const API_URL: &str = "api.wibbly.one";
+
 use crate::Result;
 
 lazy_static! {
@@ -56,7 +59,6 @@ pub async fn serve(pool: Pool<Sqlite>) -> Result<()> {
             .route("/addon", post(new_addon))
             .route("/addon/:guid", get(get_addon))
             .route("/addon/:guid/install", post(post_addon_install_user))
-            .route("/addon/:guid/dashboard-info", get(get_addon_dashboard_info))
             .route("/addon/:guid/dashboard/*O", get(get_addon_dashboard_page))
             .route("/addon/:guid/icon", post(upload_icon))
             .route("/addon/:guid/gallery", post(upload_gallery_item))
@@ -276,30 +278,15 @@ async fn get_addon(
     ))))
 }
 
-async fn get_addon_dashboard_info(
-    extract::Path(guid): extract::Path<Uuid>,
-    extract::State(db): extract::State<SqlitePool>,
-) -> Result<JsonResponse<serde_json::Value>> {
-    let Some(_addon) = AddonModel::find_one_by_guid(guid, &mut *db.acquire().await?).await? else {
-        return Err(eyre::eyre!("Addon not found"))?;
-    };
-
-    Ok(Json(WrappingResponse::okay(serde_json::json!({
-        "routes": [
-            { "name": "Overview", "path": "/" },
-            // { "name": "Analytics", "path": "/analytics" },
-        ]
-    }))))
-}
-
 async fn get_addon_dashboard_page(
     extract::Path((guid, _path)): extract::Path<(Uuid, String)>,
     extract::State(db): extract::State<SqlitePool>,
 ) -> Result<impl IntoResponse> {
-    let Some(_addon) = AddonModel::find_one_by_guid(guid, &mut *db.acquire().await?).await? else {
+    let Some(addon) = AddonModel::find_one_by_guid(guid, &mut *db.acquire().await?).await? else {
         return Err(eyre::eyre!("Addon not found"))?;
     };
 
+    // TODO: Upload SPA file instead
     let mut files = tokio::fs::read_dir("../addon-blog/dashboard/dist/assets").await?;
 
     let resp_builder = axum::response::Response::builder()
@@ -314,7 +301,15 @@ async fn get_addon_dashboard_page(
 
         if meta.is_file() {
             if entry.file_name().to_string_lossy().ends_with(".js") {
-                let contents = tokio::fs::read_to_string(entry.path()).await?;
+                let addon_guid = addon.guid;
+
+                let mut contents = tokio::fs::read_to_string(entry.path()).await?;
+
+                // TODO: inject relevant JS types.
+                contents.insert_str(
+                    0,
+                    &format!(r#"const API_URL = "https://{API_URL}/addon/_api/{addon_guid}";\n\n"#),
+                );
 
                 return Ok(resp_builder
                     .header(
