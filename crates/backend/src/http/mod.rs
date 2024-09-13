@@ -4,9 +4,11 @@ use addon_common::{
     InstallResponse, JsonListResponse, JsonResponse, ListResponse, WrappingResponse,
 };
 use axum::{
+    body::Body,
     extract::{self, multipart::Field},
+    http::HeaderValue,
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::{any, get, post},
     Extension, Json, Router,
 };
 use common::{
@@ -19,20 +21,19 @@ use common::{
     DashboardPageInfo, MemberId, MemberModel, WebsiteModel,
 };
 use database::{
-    AddonDashboardPage, AddonInstance, AddonModel, AddonPermissionModel, MediaUploadModel,
-    NewAddonInstance, NewAddonMediaModel, NewAddonModel, NewMediaUploadModel,
+    AddonDashboardPage, AddonInstanceModel, AddonModel, AddonPermissionModel, MediaUploadModel,
+    NewAddonInstanceModel, NewAddonMediaModel, NewAddonModel, NewMediaUploadModel,
 };
 use futures::TryStreamExt;
+use hyper::header::CONTENT_TYPE;
 use lazy_static::lazy_static;
+use mime_guess::mime::APPLICATION_JSON;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use sqlx::{Pool, Sqlite, SqlitePool};
 use tokio::{fs::OpenOptions, io::AsyncWriteExt, net::TcpListener};
 use tower_http::trace::TraceLayer;
 use uuid::Uuid;
-
-// TODO: Common between Main Website & Addon
-pub const API_URL: &str = "api.wibbly.one";
 
 use crate::Result;
 
@@ -53,11 +54,13 @@ pub async fn serve(pool: Pool<Sqlite>) -> Result<()> {
     axum::serve(
         listener,
         Router::new()
+            .route("/_api/:addon_id/*O", any(handle_api))
             .route("/list-active/:website", get(get_active_addon_list))
             .route("/dashboard-pages/:website", get(get_dashboard_pages))
             .route("/addons", get(get_addon_list))
             .route("/addon", post(new_addon))
             .route("/addon/:guid", get(get_addon))
+            .route("/addon/:guid/instance/:website", get(get_addon_instance))
             .route("/addon/:guid/install", post(post_addon_install_user))
             .route("/addon/:guid/dashboard/*O", get(get_addon_dashboard_page))
             .route("/addon/:guid/icon", post(upload_icon))
@@ -71,11 +74,67 @@ pub async fn serve(pool: Pool<Sqlite>) -> Result<()> {
     Ok(())
 }
 
+async fn handle_api(
+    extract::Path((addon_id, rest)): extract::Path<(Uuid, String)>,
+    extract::State(db): extract::State<SqlitePool>,
+    req: extract::Request<Body>,
+) -> Result<impl IntoResponse> {
+    let mut acq = db.acquire().await?;
+
+    let Some(addon) = AddonModel::find_one_by_guid(addon_id, &mut *acq).await? else {
+        return Err(eyre::eyre!("Addon not found"))?;
+    };
+
+    let Some(url) = addon.action_url else {
+        return Err(eyre::eyre!("Addon Action URL not found"))?;
+    };
+
+    let uri = req.uri().clone();
+    let method = req.method().clone();
+    let headers = req.headers().clone();
+
+    let mut buf = Vec::new();
+
+    for by in req
+        .into_body()
+        .into_data_stream()
+        .try_collect::<Vec<_>>()
+        .await
+        .unwrap()
+    {
+        buf.append(&mut by.to_vec());
+    }
+
+    let resp = CLIENT
+        .request(
+            method,
+            format!(
+                "{url}/{rest}{}",
+                uri.query().map(|v| format!("?{v}")).unwrap_or_default()
+            ),
+        )
+        .headers(headers)
+        .body(buf)
+        .send()
+        .await?;
+
+    let content_type = resp.headers().get(CONTENT_TYPE).cloned();
+
+    Ok((
+        [(
+            CONTENT_TYPE,
+            content_type.unwrap_or_else(|| HeaderValue::from_static(APPLICATION_JSON.as_ref())),
+        )],
+        Body::from_stream(resp.bytes_stream()),
+    ))
+}
+
 async fn get_dashboard_pages(
     extract::Path(website): extract::Path<Uuid>,
     extract::State(db): extract::State<SqlitePool>,
 ) -> Result<JsonListResponse<serde_json::Value>> {
-    let active = AddonInstance::find_by_website_uuid(website, &mut *db.acquire().await?).await?;
+    let active =
+        AddonInstanceModel::find_by_website_uuid(website, &mut *db.acquire().await?).await?;
 
     let mut items = Vec::new();
 
@@ -107,7 +166,8 @@ async fn get_active_addon_list(
     extract::Path(website): extract::Path<Uuid>,
     extract::State(db): extract::State<SqlitePool>,
 ) -> Result<JsonListResponse<AddonPublic>> {
-    let active = AddonInstance::find_by_website_uuid(website, &mut *db.acquire().await?).await?;
+    let active =
+        AddonInstanceModel::find_by_website_uuid(website, &mut *db.acquire().await?).await?;
 
     let mut items = Vec::new();
 
@@ -161,7 +221,7 @@ async fn post_addon_install_user(
             AddonPermissionModel::find_by_scope_addon_id(addon.id, "member", &mut *acq).await?;
 
         // 1. Insert Website Addon
-        let mut inst = NewAddonInstance {
+        let mut inst = NewAddonInstanceModel {
             addon_id: addon.id,
             website_id: value.website.id,
             website_uuid: value.website_id,
@@ -171,7 +231,7 @@ async fn post_addon_install_user(
 
         // 2. Send install request
         let resp = CLIENT
-            .post(url)
+            .post(format!("{url}/registration"))
             .json(&serde_json::json!({
                 "instanceId": inst.public_id,
 
@@ -259,6 +319,28 @@ async fn get_addon_list(
     }
 }
 
+async fn get_addon_instance(
+    extract::Path((addon_id, website_id)): extract::Path<(Uuid, Uuid)>,
+    extract::State(db): extract::State<SqlitePool>,
+) -> Result<JsonResponse<serde_json::Value>> {
+    let mut acq = db.acquire().await?;
+
+    let Some(addon) = AddonModel::find_one_by_guid(addon_id, &mut *acq).await? else {
+        return Err(eyre::eyre!("Addon not found"))?;
+    };
+
+    let Some(inst) =
+        AddonInstanceModel::find_by_addon_website_id(addon.id, website_id, &mut *acq).await?
+    else {
+        return Err(eyre::eyre!("Addon Instance not found"))?;
+    };
+
+    Ok(Json(WrappingResponse::okay(serde_json::json!({
+        "uuid": inst.public_id,
+        "isSetup": inst.is_setup,
+    }))))
+}
+
 async fn get_addon(
     extract::Path(guid): extract::Path<Uuid>,
     extract::State(db): extract::State<SqlitePool>,
@@ -282,7 +364,7 @@ async fn get_addon_dashboard_page(
     extract::Path((guid, _path)): extract::Path<(Uuid, String)>,
     extract::State(db): extract::State<SqlitePool>,
 ) -> Result<impl IntoResponse> {
-    let Some(addon) = AddonModel::find_one_by_guid(guid, &mut *db.acquire().await?).await? else {
+    let Some(_addon) = AddonModel::find_one_by_guid(guid, &mut *db.acquire().await?).await? else {
         return Err(eyre::eyre!("Addon not found"))?;
     };
 
@@ -301,15 +383,7 @@ async fn get_addon_dashboard_page(
 
         if meta.is_file() {
             if entry.file_name().to_string_lossy().ends_with(".js") {
-                let addon_guid = addon.guid;
-
-                let mut contents = tokio::fs::read_to_string(entry.path()).await?;
-
-                // TODO: inject relevant JS types.
-                contents.insert_str(
-                    0,
-                    &format!(r#"const API_URL = "https://{API_URL}/addon/_api/{addon_guid}";\n\n"#),
-                );
+                let contents = tokio::fs::read_to_string(entry.path()).await?;
 
                 return Ok(resp_builder
                     .header(

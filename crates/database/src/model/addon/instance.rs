@@ -4,7 +4,7 @@ use sqlx::{FromRow, Result, SqliteConnection};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-pub struct NewAddonInstance {
+pub struct NewAddonInstanceModel {
     pub addon_id: AddonId,
 
     pub website_id: WebsiteId,
@@ -12,7 +12,7 @@ pub struct NewAddonInstance {
 }
 
 #[derive(FromRow)]
-pub struct AddonInstance {
+pub struct AddonInstanceModel {
     pub id: AddonInstanceId,
     pub public_id: Uuid,
 
@@ -31,8 +31,8 @@ pub struct AddonInstance {
     pub deleted_at: Option<OffsetDateTime>,
 }
 
-impl NewAddonInstance {
-    pub async fn insert(self, db: &mut SqliteConnection) -> Result<AddonInstance> {
+impl NewAddonInstanceModel {
+    pub async fn insert(self, db: &mut SqliteConnection) -> Result<AddonInstanceModel> {
         let public_id = Uuid::now_v7();
         let now = OffsetDateTime::now_utc();
 
@@ -47,7 +47,7 @@ impl NewAddonInstance {
             .execute(db)
             .await?;
 
-        Ok(AddonInstance {
+        Ok(AddonInstanceModel {
             id: AddonInstanceId::from(resp.last_insert_rowid()),
             public_id,
             addon_id: self.addon_id,
@@ -62,7 +62,7 @@ impl NewAddonInstance {
     }
 }
 
-impl AddonInstance {
+impl AddonInstanceModel {
     pub async fn update(&mut self, db: &mut SqliteConnection) -> Result<u64> {
         self.updated_at = OffsetDateTime::now_utc();
 
@@ -82,6 +82,20 @@ impl AddonInstance {
             "SELECT id, public_id, addon_id, website_id, website_uuid, is_setup, delete_reason, created_at, updated_at, deleted_at FROM addon_instance WHERE public_id = $1",
         )
         .bind(uuid)
+        .fetch_optional(db)
+        .await?)
+    }
+
+    pub async fn find_by_addon_website_id(
+        addon_id: AddonId,
+        website_id: Uuid,
+        db: &mut SqliteConnection,
+    ) -> Result<Option<Self>> {
+        Ok(sqlx::query_as(
+            "SELECT id, public_id, addon_id, website_id, website_uuid, is_setup, delete_reason, created_at, updated_at, deleted_at FROM addon_instance WHERE addon_id = $1 AND website_uuid = $2",
+        )
+        .bind(addon_id)
+        .bind(website_id)
         .fetch_optional(db)
         .await?)
     }
