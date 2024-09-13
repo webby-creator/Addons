@@ -1,0 +1,1 @@
+ALTER TABLE addon ADD COLUMN root_dashboard_page TEXT;

@@ -155,6 +155,7 @@ async fn get_dashboard_pages(
             "name": addon.name,
             "icon": addon.icon,
             "guid": addon.guid,
+            "rootPage": addon.root_dashboard_page,
             "pages": pages.into_iter().map(|p| p.into()).collect::<Vec<DashboardPageInfo>>(),
         }));
     }
@@ -426,6 +427,7 @@ async fn new_addon(
         icon: None,
         version: String::new(),
         action_url: None,
+        root_dashboard_page: None,
     }
     .insert(&mut *db.acquire().await?)
     .await?;

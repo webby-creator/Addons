@@ -17,6 +17,7 @@ pub struct NewAddonModel {
     pub version: String,
 
     pub action_url: Option<String>,
+    pub root_dashboard_page: Option<String>,
 }
 
 #[derive(FromRow, Serialize)]
@@ -37,6 +38,7 @@ pub struct AddonModel {
     pub version: String,
 
     pub action_url: Option<String>,
+    pub root_dashboard_page: Option<String>,
 
     pub is_visible: bool,
     pub is_accepted: bool,
@@ -56,7 +58,7 @@ impl NewAddonModel {
         let guid = Uuid::now_v7();
 
         let resp = sqlx::query(
-            "INSERT INTO addon (member_id, member_uuid, guid, name, tag_line, description, icon, version, action_url, is_visible, is_accepted, install_count, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10, $11, $12, $12)",
+            "INSERT INTO addon (member_id, member_uuid, guid, name, tag_line, description, icon, version, action_url, root_dashboard_page, is_visible, is_accepted, install_count, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12, $13, $13)",
         )
         .bind(self.member_id)
         .bind(self.member_uuid)
@@ -67,6 +69,7 @@ impl NewAddonModel {
         .bind(&self.icon)
         .bind(&self.version)
         .bind(&self.action_url)
+        .bind(&self.root_dashboard_page)
         .bind(false)
         .bind(0)
         .bind(now)
@@ -84,6 +87,7 @@ impl NewAddonModel {
             icon: self.icon,
             version: self.version,
             action_url: self.action_url,
+            root_dashboard_page: self.root_dashboard_page,
             is_accepted: false,
             is_visible: false,
             install_count: 0,
@@ -98,7 +102,7 @@ impl NewAddonModel {
 impl AddonModel {
     pub async fn find_one_by_id(id: AddonId, db: &mut SqliteConnection) -> Result<Option<Self>> {
         Ok(sqlx::query_as(
-            "SELECT id, member_id, member_uuid, guid, name, tag_line, description, icon, version, action_url, is_visible, is_accepted, install_count, delete_reason, created_at, updated_at, deleted_at FROM addon WHERE id = $1"
+            "SELECT id, member_id, member_uuid, guid, name, tag_line, description, icon, version, action_url, root_dashboard_page, is_visible, is_accepted, install_count, delete_reason, created_at, updated_at, deleted_at FROM addon WHERE id = $1"
         )
         .bind(id)
         .fetch_optional(db)
@@ -107,7 +111,7 @@ impl AddonModel {
 
     pub async fn find_one_by_guid(guid: Uuid, db: &mut SqliteConnection) -> Result<Option<Self>> {
         Ok(sqlx::query_as(
-            "SELECT id, member_id, member_uuid, guid, name, tag_line, description, icon, version, action_url, is_visible, is_accepted, install_count, delete_reason, created_at, updated_at, deleted_at FROM addon WHERE guid = $1"
+            "SELECT id, member_id, member_uuid, guid, name, tag_line, description, icon, version, action_url, root_dashboard_page, is_visible, is_accepted, install_count, delete_reason, created_at, updated_at, deleted_at FROM addon WHERE guid = $1"
         )
         .bind(guid)
         .fetch_optional(db)
@@ -116,7 +120,7 @@ impl AddonModel {
 
     pub async fn find_all(db: &mut SqliteConnection) -> Result<Vec<Self>> {
         Ok(sqlx::query_as(
-            "SELECT id, member_id, member_uuid, guid, name, tag_line, description, icon, version, action_url, is_visible, is_accepted, install_count, delete_reason, created_at, updated_at, deleted_at FROM addon"
+            "SELECT id, member_id, member_uuid, guid, name, tag_line, description, icon, version, action_url, root_dashboard_page, is_visible, is_accepted, install_count, delete_reason, created_at, updated_at, deleted_at FROM addon"
         )
         .fetch_all(db)
         .await?)
