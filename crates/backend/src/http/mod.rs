@@ -156,7 +156,13 @@ async fn get_dashboard_pages(
             "icon": addon.icon,
             "guid": addon.guid,
             "rootPage": addon.root_dashboard_page,
-            "pages": pages.into_iter().map(|p| p.into()).collect::<Vec<DashboardPageInfo>>(),
+            "pages": pages.into_iter().filter_map(|p| {
+                if p.is_sidebar_visible {
+                    Some(p.into())
+                } else {
+                    None
+                }
+            }).collect::<Vec<DashboardPageInfo>>(),
         }));
     }
 

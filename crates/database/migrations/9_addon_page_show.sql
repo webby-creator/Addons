@@ -1,0 +1,1 @@
+ALTER TABLE addon_dashboard_page ADD COLUMN is_sidebar_visible boolean DEFAULT true;

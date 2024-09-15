@@ -9,17 +9,20 @@ pub struct AddonDashboardPage {
     pub type_of: String,
     pub name: String,
     pub path: String,
+
+    pub is_sidebar_visible: bool,
 }
 
 impl AddonDashboardPage {
     pub async fn insert(&self, db: &mut SqliteConnection) -> Result<()> {
         sqlx::query(
-            "INSERT INTO addon_dashboard_page (addon_id, type, name, path) VALUES ($1, $2, $3, $4)",
+            "INSERT INTO addon_dashboard_page (addon_id, type, name, path, is_sidebar_visible) VALUES ($1, $2, $3, $4, $5)",
         )
         .bind(self.addon_id)
         .bind(&self.type_of)
         .bind(&self.name)
         .bind(&self.path)
+        .bind(&self.is_sidebar_visible)
         .execute(db)
         .await?;
 
@@ -28,7 +31,7 @@ impl AddonDashboardPage {
 
     pub async fn find_by_id(id: AddonId, db: &mut SqliteConnection) -> Result<Vec<Self>> {
         Ok(sqlx::query_as(
-            "SELECT addon_id, type, name, path FROM addon_dashboard_page WHERE addon_id = $1",
+            "SELECT addon_id, type, name, path, is_sidebar_visible FROM addon_dashboard_page WHERE addon_id = $1",
         )
         .bind(id)
         .fetch_all(db)
