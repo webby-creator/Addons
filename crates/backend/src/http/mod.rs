@@ -1,3 +1,5 @@
+mod dev;
+
 use std::{borrow::Cow, net::SocketAddr};
 
 use addon_common::{
@@ -54,17 +56,19 @@ pub async fn serve(pool: Pool<Sqlite>) -> Result<()> {
     axum::serve(
         listener,
         Router::new()
+            // API Passthrough
             .route("/_api/:addon_id/*O", any(handle_api))
             .route("/list-active/:website", get(get_active_addon_list))
             .route("/dashboard-pages/:website", get(get_dashboard_pages))
             .route("/addons", get(get_addon_list))
             .route("/addon", post(new_addon))
-            .route("/addon/:guid", get(get_addon))
+            .route("/addon/:guid", get(get_addon_public))
             .route("/addon/:guid/instance/:website", get(get_addon_instance))
-            .route("/addon/:guid/install", post(post_addon_install_user))
             .route("/addon/:guid/dashboard/*O", get(get_addon_dashboard_page))
+            .route("/addon/:guid/install", post(post_addon_install_user))
             .route("/addon/:guid/icon", post(upload_icon))
             .route("/addon/:guid/gallery", post(upload_gallery_item))
+            .nest("/dev", dev::routes())
             .layer(TraceLayer::new_for_http())
             .layer(Extension(uploader.clone()))
             .with_state(pool),
@@ -284,41 +288,44 @@ async fn post_addon_install_user(
 #[derive(Deserialize)]
 struct Query {
     pub view: Option<String>,
+    pub member: Option<Uuid>,
 }
 
 async fn get_addon_list(
     extract::State(db): extract::State<SqlitePool>,
-    extract::Query(Query { view }): extract::Query<Query>,
+    extract::Query(Query { view, member }): extract::Query<Query>,
 ) -> Result<Response> {
     match view.as_deref() {
         None | Some("simple") => {
-            let addons = AddonModel::find_all(&mut *db.acquire().await?).await?;
+            let addons = if let Some(member) = member {
+                AddonModel::find_all_by_member(member, &mut *db.acquire().await?).await?
+            } else {
+                AddonModel::find_all(&mut *db.acquire().await?).await?
+            };
 
-            Ok(Json(WrappingResponse::okay(ListResponse {
-                offset: 0,
-                limit: addons.len(),
-                total: addons.len(),
-                items: addons
+            Ok(Json(WrappingResponse::okay(ListResponse::all(
+                addons
                     .into_iter()
                     .map(|a| a.into_public(None, None, Vec::new()))
                     .collect(),
-            }))
+            )))
             .into_response())
         }
 
         Some("extended") => {
             // TODO: Extended Variant
-            let addons = AddonModel::find_all(&mut *db.acquire().await?).await?;
+            let addons = if let Some(member) = member {
+                AddonModel::find_all_by_member(member, &mut *db.acquire().await?).await?
+            } else {
+                AddonModel::find_all(&mut *db.acquire().await?).await?
+            };
 
-            Ok(Json(WrappingResponse::okay(ListResponse {
-                offset: 0,
-                limit: addons.len(),
-                total: addons.len(),
-                items: addons
+            Ok(Json(WrappingResponse::okay(ListResponse::all(
+                addons
                     .into_iter()
                     .map(|a| a.into_public(None, None, Vec::new()))
                     .collect(),
-            }))
+            )))
             .into_response())
         }
 
@@ -348,7 +355,7 @@ async fn get_addon_instance(
     }))))
 }
 
-async fn get_addon(
+async fn get_addon_public(
     extract::Path(guid): extract::Path<Uuid>,
     extract::State(db): extract::State<SqlitePool>,
 ) -> Result<JsonResponse<AddonPublic>> {

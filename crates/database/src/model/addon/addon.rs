@@ -126,6 +126,15 @@ impl AddonModel {
         .await?)
     }
 
+    pub async fn find_all_by_member(guid: Uuid, db: &mut SqliteConnection) -> Result<Vec<Self>> {
+        Ok(sqlx::query_as(
+            "SELECT id, member_id, member_uuid, guid, name, tag_line, description, icon, version, action_url, root_dashboard_page, is_visible, is_accepted, install_count, delete_reason, created_at, updated_at, deleted_at FROM addon WHERE member_uuid = $1"
+        )
+        .bind(guid)
+        .fetch_all(db)
+        .await?)
+    }
+
     pub async fn delete(id: AddonId, reason: String, db: &mut SqliteConnection) -> Result<u64> {
         let res = sqlx::query("UPDATE addon SET deleted_at = $2, delete_reason = $3 WHERE id = $1")
             .bind(id)
