@@ -1,4 +1,4 @@
-use common::{AddonId, DashboardPageInfo};
+use local_common::{AddonId, DashboardPageInfo};
 use sqlx::{FromRow, Result, SqliteConnection};
 
 #[derive(FromRow)]

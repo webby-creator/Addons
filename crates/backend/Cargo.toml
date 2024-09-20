@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 addon-common = { path = "../../../addon-common" }
 database = { path = "../database" }
-common = { path = "../common" }
+local-common = { path = "../common" }
 
 hyper = "1.4"
 axum = { version = "0.7", features = ["multipart"] }

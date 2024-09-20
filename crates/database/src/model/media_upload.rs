@@ -1,4 +1,4 @@
-use common::{MemberId, MediaId};
+use local_common::{MemberId, MediaId};
 use eyre::Result;
 use sqlx::{FromRow, SqliteConnection};
 use time::OffsetDateTime;

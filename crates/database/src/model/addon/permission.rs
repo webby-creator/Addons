@@ -12,7 +12,7 @@
 // member.info.read.name
 // member.info.read.avatar
 
-use common::{AddonId, AddonPermission};
+use local_common::{AddonId, AddonPermission};
 use sqlx::{Result, SqliteConnection};
 
 pub struct AddonPermissionModel {

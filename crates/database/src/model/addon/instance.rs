@@ -1,5 +1,5 @@
 /// Instances of addons used on websites
-use common::{AddonId, AddonInstanceId, WebsiteId};
+use local_common::{AddonId, AddonInstanceId, WebsiteId};
 use sqlx::{FromRow, Result, SqliteConnection};
 use time::OffsetDateTime;
 use uuid::Uuid;

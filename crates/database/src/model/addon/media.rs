@@ -1,4 +1,4 @@
-use common::{AddonId, AddonMediaId, MediaId};
+use local_common::{AddonId, AddonMediaId, MediaId};
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use sqlx::{
     encode::IsNull,

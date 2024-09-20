@@ -3,15 +3,18 @@ extern crate log;
 
 use std::fmt::Write as _;
 
+use serde::{Deserialize, Serialize};
+use time::OffsetDateTime;
+use uuid::Uuid;
+
 pub mod api;
 pub mod generate;
 mod id;
 pub mod upload;
+mod widget;
 
 pub use id::*;
-use serde::{Deserialize, Serialize};
-use time::OffsetDateTime;
-use uuid::Uuid;
+pub use widget::*;
 
 #[derive(Serialize, Deserialize)]
 pub struct DashboardPageInfo {

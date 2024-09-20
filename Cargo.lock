@@ -23,13 +23,13 @@ dependencies = [
  "axum",
  "axum-extra",
  "axum-login",
- "common",
  "database",
  "eyre",
  "futures",
  "hyper",
  "image",
  "lazy_static",
+ "local-common",
  "mime_guess",
  "num_enum",
  "reqwest",
@@ -501,38 +501,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3d7b894f5411737b7867f4827955924d7c254fc9f4d91a6aad6b097804b1018b"
 
 [[package]]
-name = "common"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "axum",
- "bcrypt",
- "btwo",
- "bytes",
- "concread",
- "eyre",
- "image",
- "lazy_static",
- "log",
- "mime",
- "mime_guess",
- "num_enum",
- "rand",
- "rand_hc",
- "reqwest",
- "serde",
- "serde_json",
- "serde_with",
- "sha1",
- "sha2",
- "sqlx",
- "thiserror",
- "time",
- "tokio",
- "uuid",
-]
-
-[[package]]
 name = "concread"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -714,9 +682,9 @@ dependencies = [
 name = "database"
 version = "0.1.0"
 dependencies = [
- "common",
  "eyre",
  "lazy_static",
+ "local-common",
  "num_enum",
  "serde",
  "serde_json",
@@ -1533,6 +1501,39 @@ name = "linux-raw-sys"
 version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "78b3ae25bc7c8c38cec158d1f2757ee79e9b3740fbc7ccf0e59e4b08d793fa89"
+
+[[package]]
+name = "local-common"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "axum",
+ "bcrypt",
+ "btwo",
+ "bytes",
+ "concread",
+ "eyre",
+ "image",
+ "lazy_static",
+ "log",
+ "mime",
+ "mime_guess",
+ "num_enum",
+ "rand",
+ "rand_hc",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "serde_repr",
+ "serde_with",
+ "sha1",
+ "sha2",
+ "sqlx",
+ "thiserror",
+ "time",
+ "tokio",
+ "uuid",
+]
 
 [[package]]
 name = "lock_api"
@@ -2518,6 +2519,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_repr"
+version = "0.1.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c64451ba24fc7a6a2d60fc75dd9c83c90903b19028d4eff35e88fc1e86564e9"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "serde_spanned"
 version = "0.6.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2925,9 +2937,9 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "syn"
-version = "2.0.72"
+version = "2.0.77"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc4b9b9bf2add8093d3f2c0204471e951b2285580335de42f9d2534f3ae7a8af"
+checksum = "9f35bcdf61fd8e7be6caf75f429fdca8beb3ed76584befb503b1569faee373ed"
 dependencies = [
  "proc-macro2",
  "quote",

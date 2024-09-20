@@ -98,3 +98,4 @@ create_id!(TagId, i64);
 create_id!(MediaId, i64);
 create_id!(AddonMediaId, i64);
 create_id!(AddonInstanceId, i64);
+create_id!(WidgetId, i64);

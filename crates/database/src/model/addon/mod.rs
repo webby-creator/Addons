@@ -9,6 +9,7 @@ mod instance;
 mod media;
 mod permission;
 mod pricing;
+mod site_widget;
 mod tag;
 mod webhook;
 
@@ -23,5 +24,6 @@ pub use instance::*;
 pub use media::*;
 pub use permission::*;
 pub use pricing::*;
+pub use site_widget::*;
 pub use tag::*;
 pub use webhook::*;

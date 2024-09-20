@@ -1,5 +1,5 @@
-use common::{api::AddonPublic, AddonId, MediaId, MemberId};
 use eyre::Result;
+use local_common::{api::AddonPublic, AddonId, MediaId, MemberId};
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use serde::Serialize;
 use sqlx::{FromRow, SqliteConnection};

@@ -13,22 +13,22 @@ use axum::{
     routing::{any, get, post},
     Extension, Json, Router,
 };
-use common::{
+use database::{
+    AddonDashboardPage, AddonInstanceModel, AddonModel, AddonPermissionModel, MediaUploadModel,
+    NewAddonInstanceModel, NewAddonMediaModel, NewAddonModel, NewMediaUploadModel, WidgetModel,
+};
+use futures::TryStreamExt;
+use hyper::header::CONTENT_TYPE;
+use lazy_static::lazy_static;
+use local_common::{
     api::AddonPublic,
     generate::generate_file_name,
     upload::{
         get_full_file_path, get_next_uploading_file_path, get_thumb_file_path,
         read_and_upload_data, register_b2, StorageService,
     },
-    DashboardPageInfo, MemberId, MemberModel, WebsiteModel,
+    DashboardPageInfo, MemberId, MemberModel, WebsiteModel, WidgetId,
 };
-use database::{
-    AddonDashboardPage, AddonInstanceModel, AddonModel, AddonPermissionModel, MediaUploadModel,
-    NewAddonInstanceModel, NewAddonMediaModel, NewAddonModel, NewMediaUploadModel,
-};
-use futures::TryStreamExt;
-use hyper::header::CONTENT_TYPE;
-use lazy_static::lazy_static;
 use mime_guess::mime::APPLICATION_JSON;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -60,7 +60,7 @@ pub async fn serve(pool: Pool<Sqlite>) -> Result<()> {
             .route("/_api/:addon_id/*O", any(handle_api))
             .route("/list-active/:website", get(get_active_addon_list))
             .route("/dashboard-pages/:website", get(get_dashboard_pages))
-            .route("/addons", get(get_addon_list))
+            .route("/list", get(get_addon_list))
             .route("/addon", post(new_addon))
             .route("/addon/:guid", get(get_addon_public))
             .route("/addon/:guid/instance/:website", get(get_addon_instance))
@@ -68,6 +68,9 @@ pub async fn serve(pool: Pool<Sqlite>) -> Result<()> {
             .route("/addon/:guid/install", post(post_addon_install_user))
             .route("/addon/:guid/icon", post(upload_icon))
             .route("/addon/:guid/gallery", post(upload_gallery_item))
+            // Private
+            .route("/addon/:guid/item", post(add_addon_item))
+            .route("/addon/:guid/access/:user", get(get_addon_member_access))
             .nest("/dev", dev::routes())
             .layer(TraceLayer::new_for_http())
             .layer(Extension(uploader.clone()))
@@ -374,6 +377,51 @@ async fn get_addon_public(
     ))))
 }
 
+async fn get_addon_member_access(
+    extract::Path((addon, member)): extract::Path<(Uuid, Uuid)>,
+    extract::State(db): extract::State<SqlitePool>,
+) -> Result<JsonResponse<bool>> {
+    let mut acq = db.acquire().await?;
+
+    let Some(addon) = AddonModel::find_one_by_guid(addon, &mut *acq).await? else {
+        return Err(eyre::eyre!("Addon not found"))?;
+    };
+
+    Ok(Json(WrappingResponse::okay(addon.member_uuid == member)))
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum AddItemJson {
+    Widget { uuid: Uuid, id: WidgetId },
+}
+
+async fn add_addon_item(
+    extract::Path(addon): extract::Path<Uuid>,
+    extract::State(db): extract::State<SqlitePool>,
+    extract::Json(value): extract::Json<AddItemJson>,
+) -> Result<JsonResponse<&'static str>> {
+    let mut acq = db.acquire().await?;
+
+    let Some(addon) = AddonModel::find_one_by_guid(addon, &mut *acq).await? else {
+        return Err(eyre::eyre!("Addon not found"))?;
+    };
+
+    match value {
+        AddItemJson::Widget { id, uuid } => {
+            WidgetModel {
+                addon_id: addon.id,
+                widget_id: id,
+                public_id: uuid,
+            }
+            .insert(&mut *acq)
+            .await?;
+        }
+    }
+
+    Ok(Json(WrappingResponse::okay("ok")))
+}
+
 async fn get_addon_dashboard_page(
     extract::Path((guid, _path)): extract::Path<(Uuid, String)>,
     extract::State(db): extract::State<SqlitePool>,
@@ -414,8 +462,8 @@ async fn get_addon_dashboard_page(
     Ok(resp_builder.body(String::new()).unwrap().into_response())
 }
 
-#[derive(serde::Deserialize)]
-struct Asdf {
+#[derive(Deserialize)]
+pub struct NewAddonJson {
     title: String,
     description: String,
     tagline: String,
@@ -424,12 +472,12 @@ struct Asdf {
 
 async fn new_addon(
     extract::State(db): extract::State<SqlitePool>,
-    extract::Json(Asdf {
+    extract::Json(NewAddonJson {
         title,
         description,
         tagline,
         tags: _,
-    }): extract::Json<Asdf>,
+    }): extract::Json<NewAddonJson>,
 ) -> Result<JsonResponse<AddonPublic>> {
     let addon = NewAddonModel {
         member_id: MemberId::from(1),
