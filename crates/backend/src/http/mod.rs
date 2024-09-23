@@ -1,6 +1,8 @@
-mod dev;
-
-use std::{borrow::Cow, net::SocketAddr};
+use std::{
+    borrow::Cow,
+    collections::{HashMap, HashSet},
+    net::SocketAddr,
+};
 
 use addon_common::{
     InstallResponse, JsonListResponse, JsonResponse, ListResponse, WrappingResponse,
@@ -15,7 +17,8 @@ use axum::{
 };
 use database::{
     AddonDashboardPage, AddonInstanceModel, AddonModel, AddonPermissionModel, MediaUploadModel,
-    NewAddonInstanceModel, NewAddonMediaModel, NewAddonModel, NewMediaUploadModel, WidgetModel,
+    NewAddonInstanceModel, NewAddonMediaModel, NewAddonModel, NewMediaUploadModel, SchemaDataModel,
+    SchemaDataTagModel, SchemaModel, WidgetModel,
 };
 use futures::TryStreamExt;
 use hyper::header::CONTENT_TYPE;
@@ -23,21 +26,29 @@ use lazy_static::lazy_static;
 use local_common::{
     api::AddonPublic,
     generate::generate_file_name,
+    global::{
+        SchemaFieldMap, SchemaView, SchematicFieldKey, SchematicFieldType, SchematicPermissions,
+        SimpleValue,
+    },
     upload::{
         get_full_file_path, get_next_uploading_file_path, get_thumb_file_path,
         read_and_upload_data, register_b2, StorageService,
     },
-    DashboardPageInfo, MemberId, MemberModel, WebsiteModel, WidgetId,
+    DashboardPageInfo, MemberId, MemberModel, SchemaDataTagId, WebsiteModel, WidgetId,
 };
 use mime_guess::mime::APPLICATION_JSON;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use serde_qs::axum::QsQuery;
 use sha2::{Digest, Sha256};
 use sqlx::{Pool, Sqlite, SqlitePool};
+use time::OffsetDateTime;
 use tokio::{fs::OpenOptions, io::AsyncWriteExt, net::TcpListener};
 use tower_http::trace::TraceLayer;
 use uuid::Uuid;
 
 use crate::Result;
+
+mod dev;
 
 lazy_static! {
     static ref CLIENT: reqwest::Client = reqwest::Client::new();
@@ -71,6 +82,11 @@ pub async fn serve(pool: Pool<Sqlite>) -> Result<()> {
             // Private
             .route("/addon/:guid/item", post(add_addon_item))
             .route("/addon/:guid/access/:user", get(get_addon_member_access))
+            .route("/addon/:guid/schemas", get(get_addon_schemas))
+            .route("/addon/:guid/schema/:name", get(get_cms_info))
+            .route("/addon/:guid/schema/:name/query", get(get_cms_query))
+            .route("/site/:website/schemas", get(get_website_schemas))
+            //
             .nest("/dev", dev::routes())
             .layer(TraceLayer::new_for_http())
             .layer(Extension(uploader.clone()))
@@ -482,6 +498,8 @@ async fn new_addon(
     let addon = NewAddonModel {
         member_id: MemberId::from(1),
         member_uuid: Uuid::nil(),
+        // TODO: Only keep A-Z 0-9 _
+        name_id: title.to_lowercase(),
         name: title,
         tag_line: tagline,
         description,
@@ -655,4 +673,724 @@ async fn upload_file(
             Ok(None)
         }
     }
+}
+
+//
+
+// TODO: From Main Program request addon schemas - remember if the schema is already in main program db then use main one.
+
+async fn get_addon_schemas(
+    extract::Path(addon): extract::Path<Uuid>,
+    extract::State(db): extract::State<SqlitePool>,
+) -> Result<JsonListResponse<BasicCmsInfo>> {
+    let mut acq = db.acquire().await?;
+
+    let Some(addon) = AddonModel::find_one_by_guid(addon, &mut *acq).await? else {
+        return Err(eyre::eyre!("Addon not found"))?;
+    };
+
+    let schemas = SchemaModel::find_by_addon_id(addon.id, &mut *acq).await?;
+
+    Ok(Json(WrappingResponse::okay(ListResponse::all(
+        schemas
+            .into_iter()
+            .map(|schema| BasicCmsInfo {
+                id: schema.name,
+                name: schema.display_name,
+                namespace: Some(addon.name_id.clone()),
+            })
+            .collect(),
+    ))))
+}
+
+async fn get_website_schemas(
+    extract::Path(website): extract::Path<Uuid>,
+    extract::State(db): extract::State<SqlitePool>,
+) -> Result<JsonListResponse<&'static str>> {
+    let mut acq = db.acquire().await?;
+
+    let found = AddonInstanceModel::find_by_website_uuid(website, &mut *acq).await?;
+
+    debug!("{website} {}", found.len());
+
+    Ok(Json(WrappingResponse::okay(ListResponse::empty())))
+}
+
+pub async fn get_cms_info(
+    extract::Path((addon_id, coll)): extract::Path<(Uuid, CollectionName)>,
+    extract::State(db): extract::State<SqlitePool>,
+) -> Result<JsonResponse<CmsResponse>> {
+    let mut acq = db.acquire().await?;
+
+    let Some(addon) = AddonModel::find_one_by_guid(addon_id, &mut *acq).await? else {
+        return Err(eyre::eyre!("Website not found"))?;
+    };
+
+    let Some(schema) = SchemaModel::find_one_by_public_id(addon.id, &coll.id, &mut *acq).await?
+    else {
+        return Err(eyre::eyre!("Schema not found"))?;
+    };
+
+    let tags = SchemaDataTagModel::get_all(schema.id, &mut *acq).await?;
+
+    Ok(Json(WrappingResponse::okay(CmsResponse {
+        form_id: None,
+
+        collection: PublicSchema {
+            schema_id: schema.name,
+            namespace: Some(format!("@{}", addon.name_id)),
+            primary_field: schema.primary_field,
+            display_name: schema.display_name,
+            permissions: schema.permissions.0,
+            version: schema.version,
+            allowed_operations: schema.allowed_operations.0,
+            fields: schema.fields.0,
+            ttl: schema.ttl,
+            default_sort: schema.default_sort,
+            views: schema.views.0,
+            created_at: schema.created_at,
+            updated_at: schema.updated_at,
+            deleted_at: schema.deleted_at,
+        },
+        tags: tags
+            .into_iter()
+            .map(|t| SchemaTag {
+                id: t.id,
+                row_id: t.row_id,
+                name: t.name,
+                color: t.color,
+            })
+            .collect(),
+    })))
+}
+
+#[derive(serde::Deserialize)]
+pub struct CmsQuery {
+    filter: Option<String>,
+    // sort[name]=ASC
+    sort: Option<HashMap<String, String>>,
+    /// Columns which should be returned
+    columns: Option<String>,
+
+    limit: Option<u64>,
+    offset: Option<u64>,
+    #[serde(default)]
+    include_files: bool,
+}
+
+// TODO: Instead of addon id use instance id ??
+// We need to not only return an instances' cms but also default values
+pub async fn get_cms_query(
+    extract::Path((addon_id, coll)): extract::Path<(Uuid, CollectionName)>,
+    QsQuery(CmsQuery {
+        filter,
+        sort,
+        columns,
+        limit,
+        offset,
+        include_files,
+    }): QsQuery<CmsQuery>,
+    extract::State(db): extract::State<SqlitePool>,
+) -> Result<JsonListResponse<CmsRowResponse>> {
+    let mut acq = db.acquire().await?;
+
+    let addon = match AddonModel::find_one_by_guid(addon_id, &mut *acq).await? {
+        Some(v) => v,
+        None => {
+            // TODO: Addon ID could be NIL - use coll.ns
+            return Err(eyre::eyre!("Addon not found"))?;
+        }
+    };
+
+    // addon.no_access_error(member.id(), &mut *acq).await?;
+
+    let schema = match SchemaModel::find_one_by_public_id(addon.id, &coll.id, &mut *acq).await? {
+        Some(v) => v,
+        None => {
+            // TODO: If coll.ns exists and SchemaModel isn't found search Query Addons Program
+            return Err(eyre::eyre!("Schema not found"))?;
+        }
+    };
+
+    let offset = offset.unwrap_or(0) as i64;
+    let limit = limit.unwrap_or(50).max(20) as i64;
+
+    if schema.store == "addon" {
+        let Some(url) = addon.action_url else {
+            return Err(eyre::eyre!("Addon Action URL not found"))?;
+        };
+
+        let resp = CLIENT
+            .get(format!("{url}/cms/{}/query", Uuid::nil()))
+            .send()
+            .await?;
+
+        if resp.status().is_success() {
+            let resp: WrappingResponse<ListResponse<HashMap<SchematicFieldKey, SimpleValue>>> =
+                resp.json().await?;
+
+            match resp {
+                WrappingResponse::Resp(resp) => {
+                    // TODO: Maybe we shouldn't pass it directly to the client.
+
+                    // for item in &resp.items {
+                    //     validate_item(&schema.fields, item)?;
+                    // }
+
+                    return Ok(Json(WrappingResponse::okay(ListResponse {
+                        offset: resp.offset,
+                        limit: resp.limit,
+                        total: resp.total,
+                        items: resp
+                            .items
+                            .into_iter()
+                            .map(|fields| CmsRowResponse { fields })
+                            .collect(),
+                    })));
+                }
+
+                WrappingResponse::Error(e) => return Ok(Json(WrappingResponse::Error(e))),
+            }
+
+            // Ok(Json(WrappingResponse::okay(Cow::Borrowed("ok"))))
+        } else {
+            // Ok(Json(resp.json().await?))
+        }
+
+        Ok(Json(WrappingResponse::okay(ListResponse {
+            offset: offset as usize,
+            limit: limit as usize,
+            total: 0,
+            items: Vec::new(),
+        })))
+    } else {
+        let total =
+            SchemaDataModel::count_by(addon.id, &schema, filter.as_deref(), &mut *acq).await?;
+
+        let data = SchemaDataModel::find_by(
+            addon.id,
+            &schema,
+            filter.as_deref(),
+            sort,
+            offset,
+            limit,
+            &mut *acq,
+        )
+        .await?;
+
+        let columns = if let Some(columns) = columns {
+            Some(HashSet::from_iter(
+                columns.split(',').map(|v| v.to_string()),
+            ))
+        } else {
+            None
+        };
+
+        let mut items = Vec::new();
+
+        {
+            for model in data {
+                let mut uuids = Vec::new();
+
+                if let Some(value) = model.field_audio.as_ref() {
+                    uuids.append(&mut value.values().copied().collect());
+                }
+
+                if let Some(value) = model.field_document.as_ref() {
+                    uuids.append(&mut value.values().copied().collect());
+                }
+
+                if let Some(value) = model.field_image.as_ref() {
+                    uuids.append(&mut value.values().copied().collect());
+                }
+
+                if let Some(value) = model.field_video.as_ref() {
+                    uuids.append(&mut value.values().copied().collect());
+                }
+
+                if let Some(value) = model.field_multi_document.as_ref() {
+                    uuids.append(&mut value.values().flatten().copied().collect());
+                }
+
+                uuids.sort_unstable();
+                uuids.dedup();
+
+                let fields = map_to_field_value(&schema, model, columns.as_ref())?;
+
+                // let mut files = Vec::new();
+                //
+                // if include_files {
+                //     for uuid in uuids {
+                //         if let Some(upload_id) =
+                //             WebsiteUploadLink::find_one_by_public_id(&uuid.to_string(), &mut *acq)
+                //                 .await?
+                //                 .and_then(|v| v.upload_id)
+                //         {
+                //             if let Some(item) =
+                //                 MemberUploadModel::find_one_by_id(upload_id, &mut *acq).await?
+                //             {
+                //                 // Replace public id w/ Field ID as to not expose things.
+                //                 files.push(WebsiteUpload {
+                //                     id: Some(item.id),
+                //                     public_id: uuid.to_string(),
+                //                     upload_type: String::from("media"),
+                //                     display_name: item.file_name,
+                //                     created_at: item.created_at,
+                //                     deleted_at: None,
+                //                     media: Some(WebsiteUploadFile {
+                //                         file_size: item.file_size,
+                //                         file_type: item.file_type,
+                //                         media_width: item.media_width,
+                //                         media_height: item.media_height,
+                //                         media_duration: item.media_duration,
+                //                         is_editable: item.is_editable,
+                //                         has_thumbnail: item.has_thumbnail,
+                //                         is_global: item.is_global,
+                //                     }),
+                //                     using_variant: None,
+                //                 });
+                //             }
+                //         }
+                //     }
+                // }
+
+                items.push(CmsRowResponse { fields });
+            }
+        }
+
+        Ok(Json(WrappingResponse::okay(ListResponse {
+            offset: offset as usize,
+            limit: limit as usize,
+            total: total as usize,
+            items,
+        })))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CmsRowResponse {
+    // pub files: Vec<WebsiteUpload>,
+    pub fields: HashMap<SchematicFieldKey, SimpleValue>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct BasicCmsInfo {
+    pub id: String,
+    pub name: String,
+    pub namespace: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CmsResponse {
+    pub collection: PublicSchema,
+    pub tags: Vec<SchemaTag>,
+
+    // Optional Extensions
+    pub form_id: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct SchemaTag {
+    pub id: SchemaDataTagId,
+    pub row_id: String,
+
+    pub name: String,
+    pub color: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PublicSchema {
+    pub schema_id: String,
+
+    pub namespace: Option<String>,
+    pub primary_field: String,
+    pub display_name: String,
+
+    pub permissions: SchematicPermissions,
+
+    pub version: f64,
+
+    pub allowed_operations: Vec<String>,
+
+    pub fields: SchemaFieldMap,
+
+    pub ttl: Option<i32>,
+    pub default_sort: Option<String>,
+    pub views: Vec<SchemaView>,
+
+    pub created_at: OffsetDateTime,
+    pub updated_at: OffsetDateTime,
+    pub deleted_at: Option<OffsetDateTime>,
+}
+
+fn map_to_field_value(
+    schema: &SchemaModel,
+    mut model: SchemaDataModel,
+    columns: Option<&HashSet<String>>,
+) -> Result<HashMap<SchematicFieldKey, SimpleValue>> {
+    let mut map = HashMap::new();
+
+    let mut unable_to_find = schema.fields.0.keys().cloned().collect::<Vec<_>>();
+
+    for (key, field) in &schema.fields.0 {
+        // System Field Names
+        match key {
+            SchematicFieldKey::Id => {
+                map.insert(key.clone(), SimpleValue::Text(model.public_id.to_string()));
+                continue;
+            }
+            SchematicFieldKey::Owner => {
+                map.insert(key.clone(), SimpleValue::Text(Uuid::nil().to_string()));
+                continue;
+            }
+            SchematicFieldKey::CreatedAt => {
+                map.insert(key.clone(), SimpleValue::DateTime(model.created_at));
+                continue;
+            }
+            SchematicFieldKey::UpdatedAt => {
+                map.insert(key.clone(), SimpleValue::DateTime(model.updated_at));
+                continue;
+            }
+            _ => (),
+        }
+
+        // If columns is set and its' not in there, continue
+        if let Some(columns) = columns {
+            if !columns.contains(key.as_str()) {
+                continue;
+            }
+        }
+
+        // Custom field names
+        map.insert(
+            key.clone(),
+            match field.field_type {
+                SchematicFieldType::Text => {
+                    let Some(field) = model.field_text.as_mut() else {
+                        continue;
+                    };
+
+                    let Some(value) = field.remove(key.as_str()) else {
+                        continue;
+                    };
+
+                    SimpleValue::Text(value)
+                }
+                SchematicFieldType::Number => {
+                    let Some(field) = model.field_number.as_mut() else {
+                        continue;
+                    };
+
+                    let Some(value) = field.remove(key.as_str()) else {
+                        continue;
+                    };
+
+                    SimpleValue::Number(value)
+                }
+                SchematicFieldType::URL => {
+                    let Some(field) = model.field_url.as_mut() else {
+                        continue;
+                    };
+
+                    let Some(value) = field.remove(key.as_str()) else {
+                        continue;
+                    };
+
+                    SimpleValue::Text(value)
+                }
+                SchematicFieldType::Email => {
+                    let Some(field) = model.field_email.as_mut() else {
+                        continue;
+                    };
+
+                    let Some(value) = field.remove(key.as_str()) else {
+                        continue;
+                    };
+
+                    SimpleValue::Text(value)
+                }
+                SchematicFieldType::Address => {
+                    let Some(field) = model.field_address.as_mut() else {
+                        continue;
+                    };
+
+                    let Some(value) = field.remove(key.as_str()) else {
+                        continue;
+                    };
+
+                    SimpleValue::Text(value)
+                }
+                SchematicFieldType::Phone => {
+                    let Some(field) = model.field_phone.as_mut() else {
+                        continue;
+                    };
+
+                    let Some(value) = field.remove(key.as_str()) else {
+                        continue;
+                    };
+
+                    SimpleValue::Text(value)
+                }
+                SchematicFieldType::Boolean => {
+                    let Some(field) = model.field_bool.as_mut() else {
+                        continue;
+                    };
+
+                    let Some(value) = field.remove(key.as_str()) else {
+                        continue;
+                    };
+
+                    SimpleValue::Boolean(value)
+                }
+                SchematicFieldType::DateTime => {
+                    let Some(field) = model.field_datetime.as_mut() else {
+                        continue;
+                    };
+
+                    let Some(value) = field.remove(key.as_str()) else {
+                        continue;
+                    };
+
+                    SimpleValue::DateTime(value)
+                }
+                SchematicFieldType::Date => {
+                    let Some(field) = model.field_date.as_mut() else {
+                        continue;
+                    };
+
+                    let Some(value) = field.remove(key.as_str()) else {
+                        continue;
+                    };
+
+                    SimpleValue::Date(value)
+                }
+                SchematicFieldType::Time => {
+                    let Some(field) = model.field_time.as_mut() else {
+                        continue;
+                    };
+
+                    let Some(value) = field.remove(key.as_str()) else {
+                        continue;
+                    };
+
+                    SimpleValue::Time(value)
+                }
+                SchematicFieldType::RichContent => {
+                    let Some(field) = model.field_rich_content.as_mut() else {
+                        continue;
+                    };
+
+                    let Some(value) = field.remove(key.as_str()) else {
+                        continue;
+                    };
+
+                    SimpleValue::Text(value)
+                }
+                SchematicFieldType::RichText => {
+                    let Some(field) = model.field_rich_text.as_mut() else {
+                        continue;
+                    };
+
+                    let Some(value) = field.remove(key.as_str()) else {
+                        continue;
+                    };
+
+                    SimpleValue::Text(value)
+                }
+                SchematicFieldType::Reference => {
+                    let Some(field) = model.field_reference.as_mut() else {
+                        continue;
+                    };
+
+                    let Some(value) = field.remove(key.as_str()) else {
+                        continue;
+                    };
+
+                    SimpleValue::Text(value.to_string())
+                }
+                SchematicFieldType::MultiReference => {
+                    let Some(field) = model.field_multi_reference.as_mut() else {
+                        continue;
+                    };
+
+                    let Some(value) = field.remove(key.as_str()) else {
+                        continue;
+                    };
+
+                    SimpleValue::ListString(value.into_iter().map(|v| v.to_string()).collect())
+                }
+                SchematicFieldType::MediaGallery => {
+                    let Some(field) = model.field_gallery.as_mut() else {
+                        continue;
+                    };
+
+                    let Some(value) = field.remove(key.as_str()) else {
+                        continue;
+                    };
+
+                    SimpleValue::ListString(value.into_iter().map(|v| v.to_string()).collect())
+                }
+                SchematicFieldType::Document => {
+                    let Some(field) = model.field_document.as_mut() else {
+                        continue;
+                    };
+
+                    let Some(value) = field.remove(key.as_str()) else {
+                        continue;
+                    };
+
+                    SimpleValue::Text(value.to_string())
+                }
+                SchematicFieldType::MultiDocument => {
+                    let Some(field) = model.field_multi_document.as_mut() else {
+                        continue;
+                    };
+
+                    let Some(value) = field.remove(key.as_str()) else {
+                        continue;
+                    };
+
+                    SimpleValue::ListString(value.into_iter().map(|v| v.to_string()).collect())
+                }
+                SchematicFieldType::Image => {
+                    let Some(field) = model.field_image.as_mut() else {
+                        continue;
+                    };
+
+                    let Some(value) = field.remove(key.as_str()) else {
+                        continue;
+                    };
+
+                    SimpleValue::Text(value.to_string())
+                }
+                SchematicFieldType::Video => {
+                    let Some(field) = model.field_video.as_mut() else {
+                        continue;
+                    };
+
+                    let Some(value) = field.remove(key.as_str()) else {
+                        continue;
+                    };
+
+                    SimpleValue::Text(value.to_string())
+                }
+                SchematicFieldType::Audio => {
+                    let Some(field) = model.field_audio.as_mut() else {
+                        continue;
+                    };
+
+                    let Some(value) = field.remove(key.as_str()) else {
+                        continue;
+                    };
+
+                    SimpleValue::Text(value.to_string())
+                }
+                SchematicFieldType::Tags => {
+                    let Some(field) = model.field_tags.as_mut() else {
+                        continue;
+                    };
+
+                    let Some(value) = field.remove(key.as_str()) else {
+                        continue;
+                    };
+
+                    SimpleValue::ListNumber(value.into_iter().map(|v| (*v).into()).collect())
+                }
+                SchematicFieldType::Array => {
+                    let Some(field) = model.field_array.as_mut() else {
+                        continue;
+                    };
+
+                    let Some(value) = field.remove(key.as_str()) else {
+                        continue;
+                    };
+
+                    SimpleValue::ArrayUnknown(value)
+                }
+                SchematicFieldType::Object => {
+                    let Some(field) = model.field_object.as_mut() else {
+                        continue;
+                    };
+
+                    let Some(value) = field.remove(key.as_str()) else {
+                        continue;
+                    };
+
+                    SimpleValue::ObjectUnknown(value)
+                }
+            },
+        );
+    }
+
+    for key in map.keys() {
+        if let Some(index) = unable_to_find.iter().position(|v| v == key) {
+            unable_to_find.swap_remove(index);
+        }
+    }
+
+    // Not the non-found keys, we'll go through the model field array to see if they're in it.
+    for not_found in unable_to_find {
+        let Some(field) = model.field_array.as_mut() else {
+            continue;
+        };
+
+        let Some(value) = field.remove(not_found.as_str()) else {
+            continue;
+        };
+
+        // TODO: Remove the `[]` - used to prevent frontend from erroring
+        map.insert(
+            SchematicFieldKey::Other(format!("{not_found}[]")),
+            SimpleValue::ArrayUnknown(value),
+        );
+    }
+
+    Ok(map)
+}
+
+pub struct CollectionName {
+    pub id: String,
+    pub ns: Option<String>,
+}
+
+impl<'de> Deserialize<'de> for CollectionName {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+
+        if let Some((a, b)) = value.split_once(":") {
+            Ok(Self {
+                id: b.to_string(),
+                ns: Some(a.to_string()),
+            })
+        } else {
+            Ok(Self {
+                id: value,
+                ns: None,
+            })
+        }
+    }
+}
+
+fn validate_item(
+    schema_map: &SchemaFieldMap,
+    item: &HashMap<SchematicFieldKey, SimpleValue>,
+) -> Result<()> {
+    for (schema_key, schema_field) in schema_map {
+        if schema_field.is_deleted {
+            continue;
+        }
+
+        if let Some(_value) = item.get(schema_key) {
+            // TODO: Utilize SchematicFieldType.parse_value to check if item value is the proper type.
+            // schema_field.field_type
+
+            // return Err(eyre::eyre!("Invalid Field Type, Expected {}, Found {}"))?;
+        }
+    }
+
+    Ok(())
 }

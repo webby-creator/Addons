@@ -10,10 +10,16 @@ use sqlx::{
 
 mod addon;
 mod media_upload;
+mod schema;
+mod schema_data;
+mod schema_data_tag;
 mod settings;
 
 pub use addon::*;
 pub use media_upload::*;
+pub use schema::*;
+pub use schema_data::*;
+pub use schema_data_tag::*;
 pub use settings::*;
 
 #[derive(Debug, Clone)]

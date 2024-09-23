@@ -13,6 +13,7 @@ pub struct AddonPublic {
     pub permissions: Vec<String>,
 
     pub name: String,
+    pub name_id: String,
     pub tag_line: String,
     pub description: String,
     pub icon: Option<String>,
