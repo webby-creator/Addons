@@ -4,13 +4,14 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+global-common = { path = "../../../global-common" }
 addon-common = { path = "../../../addon-common" }
 database = { path = "../database" }
 local-common = { path = "../common" }
 
 hyper = "1.4"
 axum = { version = "0.7", features = ["multipart"] }
-tower-sessions-sqlx-store = { version = "0.13", features = ["sqlite"] }
+tower-sessions-sqlx-store = { version = "0.12", features = ["sqlite"] }
 tower-sessions = { path = "../../../tower-sessions" }
 axum-login = "0.15"
 axum-extra = { version = "0.9", features = ["typed-header"] }

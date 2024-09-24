@@ -202,16 +202,16 @@ impl FromRow<'_, ::sqlx::sqlite::SqliteRow> for AddonType {
 impl ::sqlx::Encode<'_, ::sqlx::sqlite::Sqlite> for AddonType {
     fn encode_by_ref(
         &self,
-        buf: &mut <::sqlx::sqlite::Sqlite as sqlx::Database>::ArgumentBuffer<'_>,
-    ) -> std::result::Result<::sqlx::encode::IsNull, ::sqlx::error::BoxDynError> {
+        buf: &mut <::sqlx::sqlite::Sqlite as sqlx::database::HasArguments<'_>>::ArgumentBuffer,
+    ) -> sqlx::encode::IsNull {
         ::sqlx::Encode::<::sqlx::sqlite::Sqlite>::encode_by_ref(&(*self as u8 as i32), buf)
     }
 }
 
 impl ::sqlx::Decode<'_, ::sqlx::sqlite::Sqlite> for AddonType {
     fn decode(
-        value: <::sqlx::sqlite::Sqlite as sqlx::Database>::ValueRef<'_>,
-    ) -> std::result::Result<Self, ::sqlx::error::BoxDynError> {
+        value: <::sqlx::sqlite::Sqlite as sqlx::database::HasValueRef<'_>>::ValueRef,
+    ) -> std::result::Result<Self, sqlx::error::BoxDynError> {
         Ok(Self::try_from(
             <i32 as ::sqlx::Decode<::sqlx::sqlite::Sqlite>>::decode(value)? as u8,
         )?)

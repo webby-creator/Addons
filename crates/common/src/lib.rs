@@ -9,7 +9,6 @@ use uuid::Uuid;
 
 pub mod api;
 pub mod generate;
-pub mod global;
 mod id;
 pub mod upload;
 mod widget;

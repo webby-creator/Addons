@@ -1,7 +1,10 @@
 use std::collections::HashMap;
 
 use eyre::Result;
-use local_common::global::{Number, SchematicFieldKey, SchematicFieldType, SchematicFieldValue};
+use global_common::{
+    schema::{SchematicFieldKey, SchematicFieldType, SchematicFieldValue},
+    value::Number,
+};
 use local_common::{AddonId, SchemaDataId, SchemaDataTagId, SchemaId};
 use serde::Serialize;
 use sqlx::{types::Json, FromRow, SqliteConnection};

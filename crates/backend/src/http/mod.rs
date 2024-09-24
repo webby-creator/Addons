@@ -21,27 +21,28 @@ use database::{
     SchemaDataTagModel, SchemaModel, WidgetModel,
 };
 use futures::TryStreamExt;
+use global_common::{
+    response::{BasicCmsInfo, CmsResponse, CmsRowResponse, PublicSchema, SchemaTag},
+    schema::{SchematicFieldKey, SchematicFieldType},
+    uuid::CollectionName,
+    value::SimpleValue,
+};
 use hyper::header::CONTENT_TYPE;
 use lazy_static::lazy_static;
 use local_common::{
     api::AddonPublic,
     generate::generate_file_name,
-    global::{
-        SchemaFieldMap, SchemaView, SchematicFieldKey, SchematicFieldType, SchematicPermissions,
-        SimpleValue,
-    },
     upload::{
         get_full_file_path, get_next_uploading_file_path, get_thumb_file_path,
         read_and_upload_data, register_b2, StorageService,
     },
-    DashboardPageInfo, MemberId, MemberModel, SchemaDataTagId, WebsiteModel, WidgetId,
+    DashboardPageInfo, MemberId, MemberModel, WebsiteModel, WidgetId,
 };
 use mime_guess::mime::APPLICATION_JSON;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_qs::axum::QsQuery;
 use sha2::{Digest, Sha256};
 use sqlx::{Pool, Sqlite, SqlitePool};
-use time::OffsetDateTime;
 use tokio::{fs::OpenOptions, io::AsyncWriteExt, net::TcpListener};
 use tower_http::trace::TraceLayer;
 use uuid::Uuid;
@@ -755,7 +756,6 @@ pub async fn get_cms_info(
         tags: tags
             .into_iter()
             .map(|t| SchemaTag {
-                id: t.id,
                 row_id: t.row_id,
                 name: t.name,
                 color: t.color,
@@ -844,7 +844,10 @@ pub async fn get_cms_query(
                         items: resp
                             .items
                             .into_iter()
-                            .map(|fields| CmsRowResponse { fields })
+                            .map(|fields| CmsRowResponse {
+                                files: Vec::new(),
+                                fields,
+                            })
                             .collect(),
                     })));
                 }
@@ -954,7 +957,10 @@ pub async fn get_cms_query(
                 //     }
                 // }
 
-                items.push(CmsRowResponse { fields });
+                items.push(CmsRowResponse {
+                    files: Vec::new(),
+                    fields,
+                });
             }
         }
 
@@ -965,63 +971,6 @@ pub async fn get_cms_query(
             items,
         })))
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct CmsRowResponse {
-    // pub files: Vec<WebsiteUpload>,
-    pub fields: HashMap<SchematicFieldKey, SimpleValue>,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-pub struct BasicCmsInfo {
-    pub id: String,
-    pub name: String,
-    pub namespace: Option<String>,
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CmsResponse {
-    pub collection: PublicSchema,
-    pub tags: Vec<SchemaTag>,
-
-    // Optional Extensions
-    pub form_id: Option<String>,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-pub struct SchemaTag {
-    pub id: SchemaDataTagId,
-    pub row_id: String,
-
-    pub name: String,
-    pub color: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PublicSchema {
-    pub schema_id: String,
-
-    pub namespace: Option<String>,
-    pub primary_field: String,
-    pub display_name: String,
-
-    pub permissions: SchematicPermissions,
-
-    pub version: f64,
-
-    pub allowed_operations: Vec<String>,
-
-    pub fields: SchemaFieldMap,
-
-    pub ttl: Option<i32>,
-    pub default_sort: Option<String>,
-    pub views: Vec<SchemaView>,
-
-    pub created_at: OffsetDateTime,
-    pub updated_at: OffsetDateTime,
-    pub deleted_at: Option<OffsetDateTime>,
 }
 
 fn map_to_field_value(
@@ -1347,50 +1296,4 @@ fn map_to_field_value(
     }
 
     Ok(map)
-}
-
-pub struct CollectionName {
-    pub id: String,
-    pub ns: Option<String>,
-}
-
-impl<'de> Deserialize<'de> for CollectionName {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let value = String::deserialize(deserializer)?;
-
-        if let Some((a, b)) = value.split_once(":") {
-            Ok(Self {
-                id: b.to_string(),
-                ns: Some(a.to_string()),
-            })
-        } else {
-            Ok(Self {
-                id: value,
-                ns: None,
-            })
-        }
-    }
-}
-
-fn validate_item(
-    schema_map: &SchemaFieldMap,
-    item: &HashMap<SchematicFieldKey, SimpleValue>,
-) -> Result<()> {
-    for (schema_key, schema_field) in schema_map {
-        if schema_field.is_deleted {
-            continue;
-        }
-
-        if let Some(_value) = item.get(schema_key) {
-            // TODO: Utilize SchematicFieldType.parse_value to check if item value is the proper type.
-            // schema_field.field_type
-
-            // return Err(eyre::eyre!("Invalid Field Type, Expected {}, Found {}"))?;
-        }
-    }
-
-    Ok(())
 }

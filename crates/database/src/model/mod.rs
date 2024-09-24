@@ -2,10 +2,7 @@ use std::ops::{Deref, DerefMut};
 
 use serde::{de::DeserializeOwned, Serialize};
 use sqlx::{
-    encode::IsNull,
-    error::BoxDynError,
-    sqlite::{SqliteArgumentValue, SqliteTypeInfo, SqliteValueRef},
-    Decode, Encode, Sqlite, Type,
+    encode::IsNull, error::BoxDynError, sqlite::SqliteTypeInfo, Decode, Encode, Sqlite, Type,
 };
 
 mod addon;
@@ -65,8 +62,11 @@ impl<T> Encode<'_, Sqlite> for Binary<T>
 where
     T: Serialize,
 {
-    fn encode_by_ref(&self, buf: &mut Vec<SqliteArgumentValue<'_>>) -> Result<IsNull, BoxDynError> {
-        Encode::<Sqlite>::encode(serde_json::to_vec(&self.0)?, buf)
+    fn encode_by_ref(
+        &self,
+        buf: &mut <Sqlite as sqlx::database::HasArguments<'_>>::ArgumentBuffer,
+    ) -> IsNull {
+        Encode::<Sqlite>::encode(serde_json::to_vec(&self.0).unwrap(), buf)
     }
 }
 
@@ -74,7 +74,9 @@ impl<'de, T> Decode<'de, Sqlite> for Binary<T>
 where
     T: DeserializeOwned,
 {
-    fn decode(value: SqliteValueRef<'de>) -> Result<Self, BoxDynError> {
+    fn decode(
+        value: <Sqlite as sqlx::database::HasValueRef<'de>>::ValueRef,
+    ) -> Result<Self, BoxDynError> {
         let dec = <Vec<u8> as Decode<Sqlite>>::decode(value)?;
         let from = serde_json::from_slice(&dec)?;
 

@@ -19,4 +19,4 @@ num_enum = "0.7"
 time = { version = "0.3", features = ["serde-human-readable", "macros"] }
 lazy_static = "1.5"
 
-sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
+sqlx = { version = "0.7", features = ["runtime-tokio", "sqlite"] }

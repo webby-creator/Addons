@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+global-common = { path = "../../../global-common", features = ["sqlx"] }
 local-common = { path = "../common" }
 
 serde = { workspace = true }

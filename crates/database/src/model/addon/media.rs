@@ -109,15 +109,15 @@ impl FromRow<'_, SqliteRow> for AddonMediaType {
 impl Encode<'_, Sqlite> for AddonMediaType {
     fn encode_by_ref(
         &self,
-        buf: &mut <Sqlite as sqlx::Database>::ArgumentBuffer<'_>,
-    ) -> std::result::Result<IsNull, BoxDynError> {
+        buf: &mut <Sqlite as sqlx::database::HasArguments<'_>>::ArgumentBuffer,
+    ) -> IsNull {
         Encode::<Sqlite>::encode_by_ref(&(*self as u8 as i32), buf)
     }
 }
 
 impl Decode<'_, Sqlite> for AddonMediaType {
     fn decode(
-        value: <Sqlite as sqlx::Database>::ValueRef<'_>,
+        value: <Sqlite as sqlx::database::HasValueRef<'_>>::ValueRef,
     ) -> std::result::Result<Self, BoxDynError> {
         Ok(Self::try_from(
             <i32 as Decode<Sqlite>>::decode(value)? as u8
