@@ -51,12 +51,12 @@ impl WidgetModel {
         .await?)
     }
 
-    pub async fn find_by_addon_id(id: AddonId, db: &mut SqliteConnection) -> Result<Option<Self>> {
+    pub async fn find_by_addon_id(id: AddonId, db: &mut SqliteConnection) -> Result<Vec<Self>> {
         Ok(sqlx::query_as(
             "SELECT addon_id, widget_id, public_id FROM ref_widget WHERE addon_id = $1",
         )
         .bind(id)
-        .fetch_optional(db)
+        .fetch_all(db)
         .await?)
     }
 }

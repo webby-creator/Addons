@@ -122,6 +122,18 @@ impl AddonModel {
         .await?)
     }
 
+    pub async fn find_one_by_name_id(
+        name_id: &str,
+        db: &mut SqliteConnection,
+    ) -> Result<Option<Self>> {
+        Ok(sqlx::query_as(
+            "SELECT id, member_id, member_uuid, guid, name, name_id, tag_line, description, icon, version, action_url, root_dashboard_page, is_visible, is_accepted, install_count, delete_reason, created_at, updated_at, deleted_at FROM addon WHERE name_id = $1"
+        )
+        .bind(name_id)
+        .fetch_optional(db)
+        .await?)
+    }
+
     pub async fn find_all(db: &mut SqliteConnection) -> Result<Vec<Self>> {
         Ok(sqlx::query_as(
             "SELECT id, member_id, member_uuid, guid, name, name_id, tag_line, description, icon, version, action_url, root_dashboard_page, is_visible, is_accepted, install_count, delete_reason, created_at, updated_at, deleted_at FROM addon"

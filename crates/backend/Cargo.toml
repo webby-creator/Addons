@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+api = { path = "../../../website/crates/api", features = ["backend"] }
+storage = { path = "../../../website/crates/storage", features = ["backend"] }
+
 global-common = { path = "../../../global-common" }
 addon-common = { path = "../../../addon-common" }
 database = { path = "../database" }
@@ -44,5 +47,6 @@ sha2 = "0.10"
 uuid = { workspace = true, features = ["v4", "v7", "serde"] }
 num_enum = { workspace = true }
 time = { workspace = true }
+rand = { workspace = true }
 
 sqlx = { workspace = true, features = ["runtime-tokio", "sqlite"] }

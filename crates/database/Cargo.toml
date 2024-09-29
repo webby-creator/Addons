@@ -4,6 +4,12 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+# TODO: Place into global-common as optional feature
+# TODO: Simplify
+storage = { path = "../../../website/crates/storage", features = ["backend"] }
+common = { path = "../../../website/crates/common", features = ["backend"] }
+api = { path = "../../../website/crates/api", features = ["backend"] }
+
 global-common = { path = "../../../global-common", features = ["sqlx"] }
 local-common = { path = "../common" }
 

@@ -16,9 +16,10 @@ use axum::{
     Extension, Json, Router,
 };
 use database::{
-    AddonDashboardPage, AddonInstanceModel, AddonModel, AddonPermissionModel, MediaUploadModel,
-    NewAddonInstanceModel, NewAddonMediaModel, NewAddonModel, NewMediaUploadModel, SchemaDataModel,
-    SchemaDataTagModel, SchemaModel, WidgetModel,
+    AddonDashboardPage, AddonInstanceModel, AddonModel, AddonPermissionModel,
+    AddonTemplatePageContentModel, AddonTemplatePageModel, MediaUploadModel, NewAddonInstanceModel,
+    NewAddonMediaModel, NewAddonModel, NewMediaUploadModel, SchemaDataModel, SchemaDataTagModel,
+    SchemaModel, WidgetModel,
 };
 use futures::TryStreamExt;
 use global_common::{
@@ -43,6 +44,7 @@ use serde::Deserialize;
 use serde_qs::axum::QsQuery;
 use sha2::{Digest, Sha256};
 use sqlx::{Pool, Sqlite, SqlitePool};
+use storage::DisplayStore;
 use tokio::{fs::OpenOptions, io::AsyncWriteExt, net::TcpListener};
 use tower_http::trace::TraceLayer;
 use uuid::Uuid;
@@ -80,6 +82,10 @@ pub async fn serve(pool: Pool<Sqlite>) -> Result<()> {
             .route("/addon/:guid/install", post(post_addon_install_user))
             .route("/addon/:guid/icon", post(upload_icon))
             .route("/addon/:guid/gallery", post(upload_gallery_item))
+            .route(
+                "/addon/:guid/template/:template",
+                get(get_template_page_data).post(update_template_page_data),
+            )
             // Private
             .route("/addon/:guid/item", post(add_addon_item))
             .route("/addon/:guid/access/:user", get(get_addon_member_access))
@@ -276,6 +282,8 @@ async fn post_addon_install_user(
             .send()
             .await?;
 
+        // TODO: Create Addon Template Pages & Widget info in main program
+
         if resp.status().is_success() {
             // 3. Get Response - Can have multiple resolutions.
             //  - Could want to redirect the user to finish on another site.
@@ -289,7 +297,7 @@ async fn post_addon_install_user(
                     inst.update(&mut *acq).await?;
                 }
 
-                WrappingResponse::Resp(InstallResponse::Redirect(url)) => {
+                WrappingResponse::Resp(InstallResponse::Redirect(_url)) => {
                     // TODO
                 }
 
@@ -484,7 +492,7 @@ pub struct NewAddonJson {
     title: String,
     description: String,
     tagline: String,
-    tags: Vec<String>,
+    // tags: Vec<String>,
 }
 
 async fn new_addon(
@@ -493,7 +501,7 @@ async fn new_addon(
         title,
         description,
         tagline,
-        tags: _,
+        // tags,
     }): extract::Json<NewAddonJson>,
 ) -> Result<JsonResponse<AddonPublic>> {
     let addon = NewAddonModel {
@@ -678,6 +686,94 @@ async fn upload_file(
 
 //
 
+async fn get_template_page_data(
+    extract::Path((addon_id, template_id)): extract::Path<(Uuid, Uuid)>,
+    extract::State(db): extract::State<SqlitePool>,
+) -> Result<JsonResponse<serde_json::Value>> {
+    let mut acq = db.acquire().await?;
+
+    let Some(addon) = AddonModel::find_one_by_guid(addon_id, &mut *acq).await? else {
+        return Err(eyre::eyre!("Addon not found"))?;
+    };
+
+    let Some(addon_page) =
+        AddonTemplatePageModel::find_by_public_id(template_id, &mut *acq).await?
+    else {
+        return Err(eyre::eyre!("Addon page not found"))?;
+    };
+
+    if addon_page.addon_id != addon.id {
+        return Err(eyre::eyre!("Addon page is not valid"))?;
+    }
+
+    let page_content = AddonTemplatePageContentModel::find_one_by_page_id(addon_page.id, &mut *acq)
+        .await?
+        .unwrap();
+
+    Ok(Json(WrappingResponse::okay(serde_json::json!({
+        "id": addon_page.id,
+        "publicId": addon_page.public_id,
+        "name": addon_page.display_name,
+        "path": addon_page.path,
+        "data": page_content.content.0,
+    }))))
+}
+
+async fn update_template_page_data(
+    extract::Path((addon_id, template_id)): extract::Path<(Uuid, Uuid)>,
+    extract::State(db): extract::State<SqlitePool>,
+    Json(mut page): Json<DisplayStore>,
+) -> Result<JsonResponse<&'static str>> {
+    let mut acq = db.acquire().await?;
+
+    let Some(addon) = AddonModel::find_one_by_guid(addon_id, &mut *acq).await? else {
+        return Err(eyre::eyre!("Addon not found"))?;
+    };
+
+    let Some(mut addon_page) =
+        AddonTemplatePageModel::find_by_public_id(template_id, &mut *acq).await?
+    else {
+        return Err(eyre::eyre!("Addon page not found"))?;
+    };
+
+    if addon_page.addon_id != addon.id {
+        return Err(eyre::eyre!("Addon page is not valid"))?;
+    }
+
+    // Remove unused Data
+    let ids = page
+        .get_object_ids()
+        .into_iter()
+        .map(|v| v.guid)
+        .collect::<Vec<_>>();
+
+    page.set_data(
+        page.data()
+            .into_iter()
+            .filter_map(|(key, v)| {
+                if key.is_website() || ids.contains(key) {
+                    Some((*key, v.clone()))
+                } else {
+                    None
+                }
+            })
+            .collect(),
+    );
+
+    // Add Object Ids to Website Page
+    addon_page.object_ids =
+        sqlx::types::Json(page.get_object_ids().into_iter().map(|v| v.id).collect());
+
+    // TODO: Update only changed
+    addon_page.update(&mut *acq).await?;
+
+    AddonTemplatePageContentModel::new(addon_page.id, page)
+        .update(&mut *acq)
+        .await?;
+
+    Ok(Json(WrappingResponse::okay("ok")))
+}
+
 // TODO: From Main Program request addon schemas - remember if the schema is already in main program db then use main one.
 
 async fn get_addon_schemas(
@@ -774,8 +870,8 @@ pub struct CmsQuery {
 
     limit: Option<u64>,
     offset: Option<u64>,
-    #[serde(default)]
-    include_files: bool,
+    // #[serde(default)]
+    // include_files: bool,
 }
 
 // TODO: Instead of addon id use instance id ??
@@ -788,17 +884,25 @@ pub async fn get_cms_query(
         columns,
         limit,
         offset,
-        include_files,
+        // include_files,
     }): QsQuery<CmsQuery>,
     extract::State(db): extract::State<SqlitePool>,
 ) -> Result<JsonListResponse<CmsRowResponse>> {
     let mut acq = db.acquire().await?;
 
-    let addon = match AddonModel::find_one_by_guid(addon_id, &mut *acq).await? {
-        Some(v) => v,
-        None => {
-            // TODO: Addon ID could be NIL - use coll.ns
-            return Err(eyre::eyre!("Addon not found"))?;
+    let addon = if addon_id.is_nil() && coll.ns.is_some() {
+        match AddonModel::find_one_by_name_id(coll.ns.as_deref().unwrap(), &mut *acq).await? {
+            Some(v) => v,
+            None => {
+                return Err(eyre::eyre!("Addon not found"))?;
+            }
+        }
+    } else {
+        match AddonModel::find_one_by_guid(addon_id, &mut *acq).await? {
+            Some(v) => v,
+            None => {
+                return Err(eyre::eyre!("Addon not found"))?;
+            }
         }
     };
 
@@ -854,18 +958,9 @@ pub async fn get_cms_query(
 
                 WrappingResponse::Error(e) => return Ok(Json(WrappingResponse::Error(e))),
             }
-
-            // Ok(Json(WrappingResponse::okay(Cow::Borrowed("ok"))))
         } else {
-            // Ok(Json(resp.json().await?))
+            Ok(Json(resp.json().await?))
         }
-
-        Ok(Json(WrappingResponse::okay(ListResponse {
-            offset: offset as usize,
-            limit: limit as usize,
-            total: 0,
-            items: Vec::new(),
-        })))
     } else {
         let total =
             SchemaDataModel::count_by(addon.id, &schema, filter.as_deref(), &mut *acq).await?;

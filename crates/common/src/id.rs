@@ -102,3 +102,4 @@ create_id!(AddonInstanceId, i64);
 create_id!(WidgetId, i64);
 create_id!(SchemaDataId, i64);
 create_id!(SchemaDataTagId, i64);
+create_id!(AddonTemplatePageId, i64);
