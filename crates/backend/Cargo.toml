@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-api = { path = "../../../website/crates/api", features = ["backend"] }
-storage = { path = "../../../website/crates/storage", features = ["backend"] }
+api = { path = "../../../website/crates/api" }
+storage = { path = "../../../website/crates/storage" }
 
 global-common = { path = "../../../global-common" }
 addon-common = { path = "../../../addon-common" }

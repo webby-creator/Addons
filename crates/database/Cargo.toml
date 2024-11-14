@@ -6,9 +6,9 @@ edition = "2021"
 [dependencies]
 # TODO: Place into global-common as optional feature
 # TODO: Simplify
-storage = { path = "../../../website/crates/storage", features = ["backend"] }
-common = { path = "../../../website/crates/common", features = ["backend"] }
-api = { path = "../../../website/crates/api", features = ["backend"] }
+storage = { path = "../../../website/crates/storage" }
+common = { path = "../../../website/crates/common" }
+api = { path = "../../../website/crates/api" }
 
 global-common = { path = "../../../global-common", features = ["sqlx"] }
 local-common = { path = "../common" }
