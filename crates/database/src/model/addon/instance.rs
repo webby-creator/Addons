@@ -11,7 +11,7 @@ pub struct NewAddonInstanceModel {
     pub website_uuid: Uuid,
 }
 
-#[derive(FromRow)]
+#[derive(Debug, FromRow)]
 pub struct AddonInstanceModel {
     pub id: AddonInstanceId,
     pub public_id: Uuid,
