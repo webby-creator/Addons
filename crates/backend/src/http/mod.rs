@@ -507,8 +507,12 @@ async fn new_addon(
     }): extract::Json<NewAddonJson>,
 ) -> Result<JsonResponse<AddonPublic>> {
     let addon = NewAddonModel {
+        // TODO: Remove
         member_id: MemberId::from(1),
-        member_uuid: Uuid::nil(),
+        member_uuid: Uuid::from_bytes([
+            0x2c, 0x5e, 0xa4, 0xc0, 0x40, 0x67, 0x11, 0xe9, 0x8b, 0x2d, 0x1b, 0x9d, 0x6b, 0xcd,
+            0xbb, 0xfd,
+        ]),
         // TODO: Only keep A-Z 0-9 _
         name_id: title.to_lowercase(),
         name: title,

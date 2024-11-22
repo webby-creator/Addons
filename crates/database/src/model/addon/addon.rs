@@ -60,7 +60,8 @@ impl NewAddonModel {
         let guid = Uuid::now_v7();
 
         let resp = sqlx::query(
-            "INSERT INTO addon (member_id, member_uuid, guid, name, name_id, tag_line, description, icon, version, action_url, root_dashboard_page, is_visible, is_accepted, install_count, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12, $13, $14, $14)",
+            "INSERT INTO addon (member_id, member_uuid, guid, name, name_id, tag_line, description, icon, version, action_url, root_dashboard_page, is_visible, is_accepted, install_count, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12, $13, $14, $14)",
         )
         .bind(self.member_id)
         .bind(self.member_uuid)
