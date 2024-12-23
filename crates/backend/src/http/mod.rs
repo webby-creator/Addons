@@ -7,6 +7,7 @@ use std::{
 use addon_common::{
     InstallResponse, JsonListResponse, JsonResponse, ListResponse, WrappingResponse,
 };
+use api::schema::SchematicField;
 use axum::{
     body::Body,
     extract::{self, multipart::Field},
@@ -18,8 +19,8 @@ use axum::{
 use database::{
     AddonDashboardPage, AddonInstanceModel, AddonModel, AddonPermissionModel,
     AddonTemplatePageContentModel, AddonTemplatePageModel, MediaUploadModel, NewAddonInstanceModel,
-    NewAddonMediaModel, NewAddonModel, NewMediaUploadModel, SchemaDataModel, SchemaDataTagModel,
-    SchemaModel, WidgetModel,
+    NewAddonMediaModel, NewAddonModel, NewMediaUploadModel, NewSchemaModel, SchemaDataModel,
+    SchemaDataTagModel, SchemaModel, WidgetModel,
 };
 use eyre::ContextCompat;
 use futures::TryStreamExt;
@@ -44,7 +45,7 @@ use mime_guess::mime::APPLICATION_JSON;
 use serde::Deserialize;
 use serde_qs::axum::QsQuery;
 use sha2::{Digest, Sha256};
-use sqlx::{Pool, Sqlite, SqlitePool};
+use sqlx::{Connection, Pool, Sqlite, SqlitePool};
 use storage::DisplayStore;
 use tokio::{fs::OpenOptions, io::AsyncWriteExt, net::TcpListener};
 use tower_http::trace::TraceLayer;
@@ -91,6 +92,7 @@ pub async fn serve(pool: Pool<Sqlite>) -> Result<()> {
             .route("/addon/:guid/item", post(add_addon_item))
             .route("/addon/:guid/access/:user", get(get_addon_member_access))
             .route("/addon/:guid/schemas", get(get_addon_schemas))
+            .route("/addon/:guid/schema/new", post(new_cms_collection))
             .route("/addon/:guid/schema/:name", get(get_cms_info))
             .route("/addon/:guid/schema/:name/query", get(get_cms_query))
             .route("/site/:website/schemas", get(get_website_schemas))
@@ -904,6 +906,132 @@ async fn duplicate_website_addons(
     }
 
     Ok(Json(WrappingResponse::okay("ok")))
+}
+
+#[derive(serde::Deserialize)]
+pub struct CreateData {
+    id: String,
+    name: String,
+    // TODO: Template
+}
+
+pub async fn new_cms_collection(
+    extract::Path(addon_id): extract::Path<Uuid>,
+    extract::State(db): extract::State<SqlitePool>,
+
+    Json(CreateData { id, name }): Json<CreateData>,
+) -> Result<JsonResponse<serde_json::Value>> {
+    let mut acq = db.acquire().await?;
+
+    let addon = AddonModel::find_one_by_guid(addon_id, &mut *acq)
+        .await?
+        .context("Addon not found")?;
+
+    // TODO: Id replace invalids
+    // .replace(/[^a-zA-Z0-9_\s]/g, "")
+    // .replace(/(?:^\w|[A-Z]|\b\w)/g, function (word, index) {
+    //     return index === 0 ? word.toLowerCase() : word.toUpperCase();
+    // })
+    // .replace(/\s+/g, "")
+    // .slice(0, 32);
+
+    if id.trim().len() < 2
+        || name.trim().len() < 2
+        || id.contains('-')
+        || id.contains('/')
+        || name.contains('/')
+    {
+        return Err(eyre::eyre!("Invalid Characters present"))?;
+    }
+
+    if SchemaModel::find_one_by_public_id(addon.id, &id, &mut *acq)
+        .await?
+        .is_some()
+    {
+        return Err(eyre::eyre!("Schema ID already Exists"))?;
+    }
+
+    let schema = acq
+        .transaction(|trx| {
+            Box::pin(async move {
+                let fields = HashMap::from_iter([
+                    (
+                        SchematicFieldKey::Id,
+                        SchematicField {
+                            display_name: String::from("ID"),
+                            sortable: true,
+                            is_deleted: false,
+                            system_field: true,
+                            field_type: SchematicFieldType::Text,
+                            index: 0,
+                            referenced_schema: None,
+                        },
+                    ),
+                    (
+                        SchematicFieldKey::Owner,
+                        SchematicField {
+                            display_name: String::from("Owner"),
+                            sortable: true,
+                            is_deleted: false,
+                            system_field: true,
+                            field_type: SchematicFieldType::Text,
+                            index: 1,
+                            referenced_schema: None,
+                        },
+                    ),
+                    (
+                        SchematicFieldKey::CreatedAt,
+                        SchematicField {
+                            display_name: String::from("Created Date"),
+                            sortable: true,
+                            is_deleted: false,
+                            system_field: true,
+                            field_type: SchematicFieldType::DateTime,
+                            index: 2,
+                            referenced_schema: None,
+                        },
+                    ),
+                    (
+                        SchematicFieldKey::UpdatedAt,
+                        SchematicField {
+                            display_name: String::from("Updated Date"),
+                            sortable: true,
+                            is_deleted: false,
+                            system_field: true,
+                            field_type: SchematicFieldType::DateTime,
+                            index: 3,
+                            referenced_schema: None,
+                        },
+                    ),
+                ]);
+
+                Result::<_, crate::Error>::Ok(
+                    NewSchemaModel {
+                        addon_id: addon.id,
+                        primary_field: String::from(SchematicFieldKey::CreatedAt.as_str()),
+                        display_name: name.trim().to_string(),
+                        permissions: Default::default(),
+                        version: 1.0,
+                        allowed_operations: Vec::new(),
+                        ttl: None,
+                        default_sort: None,
+                        name: id,
+                        store: String::from("cms"),
+                        fields,
+                        views: vec![Default::default()],
+                    }
+                    .insert(trx)
+                    .await?,
+                )
+            })
+        })
+        .await?;
+
+    Ok(Json(WrappingResponse::okay(serde_json::json!({
+        "id": schema.id,
+        "name": schema.display_name,
+        "namespace": addon.tag_line
+    }))))
 }
 
 pub async fn get_cms_info(

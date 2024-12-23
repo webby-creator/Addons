@@ -144,6 +144,7 @@ dependencies = [
  "eyre",
  "global-common",
  "num_enum",
+ "rand",
  "remod",
  "scripting",
  "serde",

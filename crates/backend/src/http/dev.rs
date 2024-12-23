@@ -6,7 +6,7 @@ use axum::{
 };
 use database::{
     AddonDashboardPage, AddonModel, AddonTemplatePageContentModel, AddonTemplatePageModel,
-    NewAddonTemplatePageModel,
+    NewAddonTemplatePageModel, SchemaModel,
 };
 use local_common::DashboardPageInfo;
 use serde::Deserialize;
@@ -36,13 +36,33 @@ async fn get_addon_overview(
     let dash_pages = AddonDashboardPage::find_by_id(addon.id, &mut *acq).await?;
     // let widgets = WidgetModel::find_by_addon_id(addon.id, &mut *acq).await?;
     let template_pages = AddonTemplatePageModel::find_by_addon_id(addon.id, &mut *acq).await?;
+    let schemas = SchemaModel::find_by_addon_id(addon.id, &mut *acq)
+        .await?
+        .into_iter()
+        .map(|schema| api::PublicSchema {
+            schema_id: schema.name,
+            namespace: Some(format!("@{}", addon.name_id)),
+            primary_field: schema.primary_field,
+            display_name: schema.display_name,
+            permissions: schema.permissions.0,
+            version: schema.version,
+            allowed_operations: schema.allowed_operations.0,
+            fields: schema.fields.0,
+            ttl: schema.ttl,
+            default_sort: schema.default_sort,
+            views: schema.views.0,
+            created_at: schema.created_at,
+            updated_at: schema.updated_at,
+            deleted_at: schema.deleted_at,
+        })
+        .collect::<Vec<_>>();
 
     Ok(Json(WrappingResponse::okay(serde_json::json!({
         // "widgets": widgets,
         "sitePages": template_pages,
         "dashboardPages": dash_pages.into_iter().map(|p| p.into()).collect::<Vec<DashboardPageInfo>>(),
         "dataGUIs": [],
-        "schemas": []
+        "schemas": schemas
     }))))
 }
 

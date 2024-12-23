@@ -30,12 +30,7 @@ pub struct NewSchemaModel {
 }
 
 impl NewSchemaModel {
-    pub fn into_form(
-        self,
-        id: SchemaId,
-        fields: SchemaFieldMap,
-        created_at: OffsetDateTime,
-    ) -> SchemaModel {
+    pub fn into_form(self, id: SchemaId, created_at: OffsetDateTime) -> SchemaModel {
         SchemaModel {
             id,
 
@@ -51,7 +46,7 @@ impl NewSchemaModel {
 
             allowed_operations: Json(self.allowed_operations),
 
-            fields: Json(fields),
+            fields: Json(self.fields),
 
             ttl: self.ttl,
             default_sort: self.default_sort,
@@ -97,11 +92,7 @@ pub struct SchemaModel {
 }
 
 impl NewSchemaModel {
-    pub async fn insert(
-        self,
-        fields: SchemaFieldMap,
-        db: &mut SqliteConnection,
-    ) -> Result<SchemaModel> {
+    pub async fn insert(self, db: &mut SqliteConnection) -> Result<SchemaModel> {
         let now = OffsetDateTime::now_utc();
 
         let res = sqlx::query(
@@ -124,7 +115,7 @@ impl NewSchemaModel {
         .execute(db)
         .await?;
 
-        Ok(self.into_form(SchemaId::from(res.last_insert_rowid() as i32), fields, now))
+        Ok(self.into_form(SchemaId::from(res.last_insert_rowid() as i32), now))
     }
 }
 
