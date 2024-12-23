@@ -7,20 +7,20 @@ use std::{
 use addon_common::{
     InstallResponse, JsonListResponse, JsonResponse, ListResponse, WrappingResponse,
 };
-use api::schema::SchematicField;
+use api::schema::{SchemaView, SchematicField};
 use axum::{
     body::Body,
-    extract::{self, multipart::Field},
+    extract::{self, multipart::Field, Json, Path, State},
     http::HeaderValue,
     response::{IntoResponse, Response},
-    routing::{any, get, post},
-    Extension, Json, Router,
+    routing::{any, delete, get, post},
+    Extension, Router,
 };
 use database::{
     AddonDashboardPage, AddonInstanceModel, AddonModel, AddonPermissionModel,
     AddonTemplatePageContentModel, AddonTemplatePageModel, MediaUploadModel, NewAddonInstanceModel,
-    NewAddonMediaModel, NewAddonModel, NewMediaUploadModel, NewSchemaModel, SchemaDataModel,
-    SchemaDataTagModel, SchemaModel, WidgetModel,
+    NewAddonMediaModel, NewAddonModel, NewMediaUploadModel, NewSchemaDataModel, NewSchemaModel,
+    SchemaDataFieldUpdate, SchemaDataModel, SchemaDataTagModel, SchemaModel, WidgetModel,
 };
 use eyre::ContextCompat;
 use futures::TryStreamExt;
@@ -93,8 +93,28 @@ pub async fn serve(pool: Pool<Sqlite>) -> Result<()> {
             .route("/addon/:guid/access/:user", get(get_addon_member_access))
             .route("/addon/:guid/schemas", get(get_addon_schemas))
             .route("/addon/:guid/schema/new", post(new_cms_collection))
-            .route("/addon/:guid/schema/:name", get(get_cms_info))
+            .route(
+                "/addon/:guid/schema/:name",
+                get(get_cms_info).post(update_cms),
+            )
             .route("/addon/:guid/schema/:name/query", get(get_cms_query))
+            .route(
+                "/addon/:guid/schema/:name/column",
+                post(create_new_data_column),
+            )
+            .route(
+                "/addon/:guid/schema/:name/column/:col_id",
+                delete(delete_data_column),
+            )
+            .route(
+                "/addon/:guid/schema/:name/column/:col_id/tag",
+                post(add_data_column_tag),
+            )
+            .route("/addon/:guid/schema/:name/row", post(create_new_data_row))
+            .route(
+                "/addon/:guid/schema/:name/row/:row_id",
+                get(get_cms_row).post(update_cms_row_cell),
+            )
             .route("/site/:website/schemas", get(get_website_schemas))
             .route("/site/:website/duplicate", post(duplicate_website_addons))
             //
@@ -109,8 +129,8 @@ pub async fn serve(pool: Pool<Sqlite>) -> Result<()> {
 }
 
 async fn handle_api(
-    extract::Path((addon_id, rest)): extract::Path<(Uuid, String)>,
-    extract::State(db): extract::State<SqlitePool>,
+    Path((addon_id, rest)): Path<(Uuid, String)>,
+    State(db): State<SqlitePool>,
     req: extract::Request<Body>,
 ) -> Result<impl IntoResponse> {
     let mut acq = db.acquire().await?;
@@ -164,8 +184,8 @@ async fn handle_api(
 }
 
 async fn get_dashboard_pages(
-    extract::Path(website): extract::Path<Uuid>,
-    extract::State(db): extract::State<SqlitePool>,
+    Path(website): Path<Uuid>,
+    State(db): State<SqlitePool>,
 ) -> Result<JsonListResponse<serde_json::Value>> {
     let active =
         AddonInstanceModel::find_by_website_uuid(website, &mut *db.acquire().await?).await?;
@@ -204,8 +224,8 @@ async fn get_dashboard_pages(
 }
 
 async fn get_active_addon_list(
-    extract::Path(website): extract::Path<Uuid>,
-    extract::State(db): extract::State<SqlitePool>,
+    Path(website): Path<Uuid>,
+    State(db): State<SqlitePool>,
 ) -> Result<JsonListResponse<AddonPublic>> {
     let active =
         AddonInstanceModel::find_by_website_uuid(website, &mut *db.acquire().await?).await?;
@@ -239,9 +259,9 @@ struct AddonInstall {
 }
 
 async fn post_addon_install_user(
-    extract::Path(guid): extract::Path<Uuid>,
-    extract::State(db): extract::State<SqlitePool>,
-    extract::Json(value): extract::Json<AddonInstall>,
+    Path(guid): Path<Uuid>,
+    State(db): State<SqlitePool>,
+    Json(value): Json<AddonInstall>,
 ) -> Result<JsonResponse<Cow<'static, str>>> {
     let mut acq = db.acquire().await?;
 
@@ -324,7 +344,7 @@ struct Query {
 }
 
 async fn get_addon_list(
-    extract::State(db): extract::State<SqlitePool>,
+    State(db): State<SqlitePool>,
     extract::Query(Query { view, member }): extract::Query<Query>,
 ) -> Result<Response> {
     match view.as_deref() {
@@ -366,8 +386,8 @@ async fn get_addon_list(
 }
 
 async fn get_addon_instance(
-    extract::Path((addon_id, website_id)): extract::Path<(Uuid, Uuid)>,
-    extract::State(db): extract::State<SqlitePool>,
+    Path((addon_id, website_id)): Path<(Uuid, Uuid)>,
+    State(db): State<SqlitePool>,
 ) -> Result<JsonResponse<serde_json::Value>> {
     let mut acq = db.acquire().await?;
 
@@ -388,8 +408,8 @@ async fn get_addon_instance(
 }
 
 async fn get_addon_public(
-    extract::Path(guid): extract::Path<Uuid>,
-    extract::State(db): extract::State<SqlitePool>,
+    Path(guid): Path<Uuid>,
+    State(db): State<SqlitePool>,
 ) -> Result<JsonResponse<AddonPublic>> {
     let mut acq = db.acquire().await?;
 
@@ -407,8 +427,8 @@ async fn get_addon_public(
 }
 
 async fn get_addon_member_access(
-    extract::Path((addon, member)): extract::Path<(Uuid, Uuid)>,
-    extract::State(db): extract::State<SqlitePool>,
+    Path((addon, member)): Path<(Uuid, Uuid)>,
+    State(db): State<SqlitePool>,
 ) -> Result<JsonResponse<bool>> {
     let mut acq = db.acquire().await?;
 
@@ -426,9 +446,9 @@ pub enum AddItemJson {
 }
 
 async fn add_addon_item(
-    extract::Path(addon): extract::Path<Uuid>,
-    extract::State(db): extract::State<SqlitePool>,
-    extract::Json(value): extract::Json<AddItemJson>,
+    Path(addon): Path<Uuid>,
+    State(db): State<SqlitePool>,
+    Json(value): Json<AddItemJson>,
 ) -> Result<JsonResponse<&'static str>> {
     let mut acq = db.acquire().await?;
 
@@ -452,8 +472,8 @@ async fn add_addon_item(
 }
 
 async fn get_addon_dashboard_page(
-    extract::Path((guid, _path)): extract::Path<(Uuid, String)>,
-    extract::State(db): extract::State<SqlitePool>,
+    Path((guid, _path)): Path<(Uuid, String)>,
+    State(db): State<SqlitePool>,
 ) -> Result<impl IntoResponse> {
     let Some(_addon) = AddonModel::find_one_by_guid(guid, &mut *db.acquire().await?).await? else {
         return Err(eyre::eyre!("Addon not found"))?;
@@ -500,13 +520,13 @@ pub struct NewAddonJson {
 }
 
 async fn new_addon(
-    extract::State(db): extract::State<SqlitePool>,
-    extract::Json(NewAddonJson {
+    State(db): State<SqlitePool>,
+    Json(NewAddonJson {
         title,
         description,
         tagline,
         // tags,
-    }): extract::Json<NewAddonJson>,
+    }): Json<NewAddonJson>,
 ) -> Result<JsonResponse<AddonPublic>> {
     let addon = NewAddonModel {
         // TODO: Remove
@@ -538,8 +558,8 @@ async fn new_addon(
 }
 
 async fn upload_icon(
-    extract::Path(guid): extract::Path<Uuid>,
-    extract::State(db): extract::State<SqlitePool>,
+    Path(guid): Path<Uuid>,
+    State(db): State<SqlitePool>,
     storage: StorageService,
     mut multipart: extract::Multipart,
 ) -> Result<JsonResponse<Option<&'static str>>> {
@@ -566,8 +586,8 @@ async fn upload_icon(
 }
 
 async fn upload_gallery_item(
-    extract::Path(guid): extract::Path<Uuid>,
-    extract::State(db): extract::State<SqlitePool>,
+    Path(guid): Path<Uuid>,
+    State(db): State<SqlitePool>,
     storage: StorageService,
     mut multipart: extract::Multipart,
 ) -> Result<JsonResponse<&'static str>> {
@@ -695,8 +715,8 @@ async fn upload_file(
 //
 
 async fn get_template_page_data(
-    extract::Path((addon_id, template_id)): extract::Path<(Uuid, Uuid)>,
-    extract::State(db): extract::State<SqlitePool>,
+    Path((addon_id, template_id)): Path<(Uuid, Uuid)>,
+    State(db): State<SqlitePool>,
 ) -> Result<JsonResponse<serde_json::Value>> {
     let mut acq = db.acquire().await?;
 
@@ -728,8 +748,8 @@ async fn get_template_page_data(
 }
 
 async fn update_template_page_data(
-    extract::Path((addon_id, template_id)): extract::Path<(Uuid, Uuid)>,
-    extract::State(db): extract::State<SqlitePool>,
+    Path((addon_id, template_id)): Path<(Uuid, Uuid)>,
+    State(db): State<SqlitePool>,
     Json(mut page): Json<DisplayStore>,
 ) -> Result<JsonResponse<&'static str>> {
     let mut acq = db.acquire().await?;
@@ -785,8 +805,8 @@ async fn update_template_page_data(
 // TODO: From Main Program request addon schemas - remember if the schema is already in main program db then use main one.
 
 async fn get_addon_schemas(
-    extract::Path(addon): extract::Path<Uuid>,
-    extract::State(db): extract::State<SqlitePool>,
+    Path(addon): Path<Uuid>,
+    State(db): State<SqlitePool>,
 ) -> Result<JsonListResponse<BasicCmsInfo>> {
     let mut acq = db.acquire().await?;
 
@@ -809,8 +829,8 @@ async fn get_addon_schemas(
 }
 
 async fn get_website_schemas(
-    extract::Path(website): extract::Path<Uuid>,
-    extract::State(db): extract::State<SqlitePool>,
+    Path(website): Path<Uuid>,
+    State(db): State<SqlitePool>,
 ) -> Result<JsonListResponse<&'static str>> {
     let mut acq = db.acquire().await?;
 
@@ -832,14 +852,14 @@ struct DuplicateWebsiteJson {
 }
 
 async fn duplicate_website_addons(
-    extract::Path(old_website): extract::Path<Uuid>,
-    extract::State(db): extract::State<SqlitePool>,
-    extract::Json(DuplicateWebsiteJson {
+    Path(old_website): Path<Uuid>,
+    State(db): State<SqlitePool>,
+    Json(DuplicateWebsiteJson {
         new_website_id,
         new_website_uuid,
         member,
         new_website,
-    }): extract::Json<DuplicateWebsiteJson>,
+    }): Json<DuplicateWebsiteJson>,
 ) -> Result<JsonResponse<&'static str>> {
     let mut acq = db.acquire().await?;
 
@@ -916,8 +936,8 @@ pub struct CreateData {
 }
 
 pub async fn new_cms_collection(
-    extract::Path(addon_id): extract::Path<Uuid>,
-    extract::State(db): extract::State<SqlitePool>,
+    Path(addon_id): Path<Uuid>,
+    State(db): State<SqlitePool>,
 
     Json(CreateData { id, name }): Json<CreateData>,
 ) -> Result<JsonResponse<serde_json::Value>> {
@@ -1035,19 +1055,18 @@ pub async fn new_cms_collection(
 }
 
 pub async fn get_cms_info(
-    extract::Path((addon_id, coll)): extract::Path<(Uuid, CollectionName)>,
-    extract::State(db): extract::State<SqlitePool>,
+    Path((addon_id, coll)): Path<(Uuid, CollectionName)>,
+    State(db): State<SqlitePool>,
 ) -> Result<JsonResponse<CmsResponse>> {
     let mut acq = db.acquire().await?;
 
-    let Some(addon) = AddonModel::find_one_by_guid(addon_id, &mut *acq).await? else {
-        return Err(eyre::eyre!("Website not found"))?;
-    };
+    let addon = AddonModel::find_one_by_guid(addon_id, &mut *acq)
+        .await?
+        .context("Addon not found")?;
 
-    let Some(schema) = SchemaModel::find_one_by_public_id(addon.id, &coll.id, &mut *acq).await?
-    else {
-        return Err(eyre::eyre!("Schema not found"))?;
-    };
+    let schema = SchemaModel::find_one_by_public_id(addon.id, &coll.id, &mut *acq)
+        .await?
+        .context("Schema not found")?;
 
     let tags = SchemaDataTagModel::get_all(schema.id, &mut *acq).await?;
 
@@ -1082,6 +1101,36 @@ pub async fn get_cms_info(
 }
 
 #[derive(serde::Deserialize)]
+pub struct UpdateCms {
+    views: Option<Vec<SchemaView>>,
+}
+
+pub async fn update_cms(
+    Path((addon_id, coll)): Path<(Uuid, CollectionName)>,
+    State(db): State<SqlitePool>,
+
+    Json(UpdateCms { views }): Json<UpdateCms>,
+) -> Result<JsonResponse<&'static str>> {
+    let mut acq = db.acquire().await?;
+
+    let addon = AddonModel::find_one_by_guid(addon_id, &mut *acq)
+        .await?
+        .context("Addon not found")?;
+
+    let mut schema = SchemaModel::find_one_by_public_id(addon.id, &coll.id, &mut *acq)
+        .await?
+        .context("Schema not found")?;
+
+    if let Some(views) = views {
+        schema.views.0 = views;
+    }
+
+    schema.update(&mut *acq).await?;
+
+    Ok(Json(WrappingResponse::okay("ok")))
+}
+
+#[derive(serde::Deserialize)]
 pub struct CmsQuery {
     filter: Option<String>,
     // sort[name]=ASC
@@ -1098,7 +1147,7 @@ pub struct CmsQuery {
 // TODO: Instead of addon id use instance id ??
 // We need to not only return an instances' cms but also default values
 pub async fn get_cms_query(
-    extract::Path((addon_id, coll)): extract::Path<(Uuid, CollectionName)>,
+    Path((addon_id, coll)): Path<(Uuid, CollectionName)>,
     QsQuery(CmsQuery {
         filter,
         sort,
@@ -1107,7 +1156,7 @@ pub async fn get_cms_query(
         offset,
         // include_files,
     }): QsQuery<CmsQuery>,
-    extract::State(db): extract::State<SqlitePool>,
+    State(db): State<SqlitePool>,
 ) -> Result<JsonListResponse<CmsRowResponse>> {
     let mut acq = db.acquire().await?;
 
@@ -1287,6 +1336,330 @@ pub async fn get_cms_query(
             items,
         })))
     }
+}
+
+// Column
+
+#[derive(serde::Deserialize)]
+pub struct CreateDataColumn {
+    id: String,
+    name: String,
+    type_of: SchematicFieldType,
+    referenced_schema: Option<String>,
+}
+
+pub async fn create_new_data_column(
+    Path((addon_id, coll)): Path<(Uuid, CollectionName)>,
+    State(db): State<SqlitePool>,
+
+    Json(CreateDataColumn {
+        id,
+        name,
+        type_of,
+        referenced_schema,
+    }): Json<CreateDataColumn>,
+) -> Result<JsonResponse<serde_json::Value>> {
+    let mut acq = db.acquire().await?;
+
+    let addon = AddonModel::find_one_by_guid(addon_id, &mut *acq)
+        .await?
+        .context("Addon not found")?;
+
+    let mut schema = SchemaModel::find_one_by_public_id(addon.id, &coll.id, &mut *acq)
+        .await?
+        .context("Schema not found")?;
+
+    // TODO: Id replace invalids
+    // .replace(/[^a-zA-Z0-9_\s]/g, "")
+    // .replace(/^_+/g, "")
+    // .replace(/(?:^\w|[A-Z]|\b\w)/g, function (word, index) {
+    //     return index === 0 ? word.toLowerCase() : word.toUpperCase();
+    // })
+    // .replace(/\s+/g, "")
+    // .slice(0, 32);
+
+    let key = SchematicFieldKey::Other(id.trim().to_string());
+
+    if schema.fields.iter().filter(|(_, v)| !v.is_deleted).count() >= 20 {
+        return Err(eyre::eyre!("Too many columns"))?;
+    }
+
+    if schema.fields.len() >= 100 {
+        return Err(eyre::eyre!("Too many columns created and deleted"))?;
+    }
+
+    if let Some(field) = schema.fields.get(&key) {
+        if field.is_deleted {
+            return Err(eyre::eyre!(
+                "Cannot create a new schema from a previously used ID"
+            ))?;
+        } else {
+            return Err(eyre::eyre!("Column ID Already Exists"))?;
+        }
+    }
+
+    // Check for missing field_type values
+    if (type_of == SchematicFieldType::Reference || type_of == SchematicFieldType::MultiReference)
+        && referenced_schema.is_none()
+    {
+        return Err(eyre::eyre!("Reference is missing the schema"))?;
+    }
+
+    let len = schema.fields.len();
+
+    let field = SchematicField {
+        display_name: name,
+        sortable: true,
+        is_deleted: false,
+        system_field: false,
+        field_type: type_of,
+        index: len as u16,
+        referenced_schema,
+    };
+
+    schema.fields.insert(key, field.clone());
+
+    schema.update(&mut *acq).await?;
+
+    Ok(Json(WrappingResponse::okay(serde_json::json!({
+        id: field
+    }))))
+}
+
+// TODO: Improve
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct UpdateDataColumn {
+    tag: String,
+}
+
+pub async fn add_data_column_tag(
+    Path((addon_id, coll, column_id)): Path<(Uuid, CollectionName, String)>,
+    State(db): State<SqlitePool>,
+
+    Json(UpdateDataColumn { tag }): Json<UpdateDataColumn>,
+) -> Result<JsonResponse<api::SchemaTag>> {
+    let mut acq = db.acquire().await?;
+
+    let addon = AddonModel::find_one_by_guid(addon_id, &mut *acq)
+        .await?
+        .context("Addon not found")?;
+
+    let mut schema = SchemaModel::find_one_by_public_id(addon.id, &coll.id, &mut *acq)
+        .await?
+        .context("Schema not found")?;
+
+    let key = SchematicFieldKey::Other(column_id);
+
+    if let Some(field) = schema.fields.get(&key) {
+        if field.field_type == SchematicFieldType::Tags {
+            let tag = SchemaDataTagModel::insert(
+                schema.id,
+                key.to_string(),
+                tag.trim().to_string(),
+                String::from("#AFA"),
+                &mut *acq,
+            )
+            .await?;
+
+            schema.update(&mut *acq).await?;
+
+            Ok(Json(WrappingResponse::okay(api::SchemaTag {
+                row_id: tag.row_id,
+                name: tag.name,
+                color: tag.color,
+            })))
+        } else {
+            return Err(eyre::eyre!("Schema field incorrect"))?;
+        }
+    } else {
+        return Err(eyre::eyre!("Schema field not found"))?;
+    }
+}
+
+pub async fn delete_data_column(
+    Path((addon_id, coll, column_id)): Path<(Uuid, CollectionName, String)>,
+    State(db): State<SqlitePool>,
+) -> Result<JsonResponse<&'static str>> {
+    let mut acq = db.acquire().await?;
+
+    let addon = AddonModel::find_one_by_guid(addon_id, &mut *acq)
+        .await?
+        .context("Addon not found")?;
+
+    let mut schema = SchemaModel::find_one_by_public_id(addon.id, &coll.id, &mut *acq)
+        .await?
+        .context("Schema not found")?;
+
+    let key = SchematicFieldKey::Other(column_id);
+
+    if let Some(field) = schema.fields.get_mut(&key) {
+        field.is_deleted = true;
+    } else {
+        return Err(eyre::eyre!("Schema field not found"))?;
+    }
+
+    schema.update(&mut *acq).await?;
+
+    Ok(Json(WrappingResponse::okay("ok")))
+}
+
+// ROW
+
+pub async fn get_cms_row(
+    Path((addon_id, coll, row_id)): Path<(Uuid, CollectionName, Uuid)>,
+    State(db): State<SqlitePool>,
+) -> Result<JsonResponse<api::CmsRowResponse>> {
+    let mut acq = db.acquire().await?;
+
+    let addon = AddonModel::find_one_by_guid(addon_id, &mut *acq)
+        .await?
+        .context("Addon not found")?;
+
+    let schema = SchemaModel::find_one_by_public_id(addon.id, &coll.id, &mut *acq)
+        .await?
+        .context("Schema not found")?;
+
+    let Some(schema_data) = SchemaDataModel::find_by_public_id(row_id, &mut *acq).await? else {
+        return Err(eyre::eyre!("Schema Data not found"))?;
+    };
+
+    let mut uuids: Vec<Uuid> = Vec::new();
+
+    if let Some(value) = schema_data.field_audio.as_ref() {
+        uuids.append(&mut value.values().copied().collect());
+    }
+
+    if let Some(value) = schema_data.field_document.as_ref() {
+        uuids.append(&mut value.values().copied().collect());
+    }
+
+    if let Some(value) = schema_data.field_image.as_ref() {
+        uuids.append(&mut value.values().copied().collect());
+    }
+
+    if let Some(value) = schema_data.field_video.as_ref() {
+        uuids.append(&mut value.values().copied().collect());
+    }
+
+    if let Some(value) = schema_data.field_multi_document.as_ref() {
+        uuids.append(&mut value.values().flatten().copied().collect());
+    }
+
+    uuids.sort_unstable();
+    uuids.dedup();
+
+    let fields = map_to_field_value(&schema, schema_data, None)?;
+
+    let mut files = Vec::new();
+
+    // TODO: Send request to main program to return a list of uploads for the given UUIDs
+
+    // if let Some(upload_id) =
+    //     WebsiteUploadLink::find_one_by_public_id(&uuid.to_string(), &mut *acq)
+    //         .await?
+    //         .and_then(|v| v.upload_id)
+    // {
+    //     if let Some(item) = MemberUploadModel::find_one_by_id(upload_id, &mut *acq).await? {
+    //         // Replace public id w/ Field ID as to not expose things.
+    //         files.push(WebsiteUpload {
+    //             namespace: None,
+    //             public_id: uuid.to_string(),
+    //             upload_type: String::from("media"),
+    //             display_name: item.file_name,
+    //             created_at: item.created_at,
+    //             deleted_at: None,
+    //             media: Some(WebsiteUploadFile {
+    //                 file_size: item.file_size,
+    //                 file_type: item.file_type,
+    //                 media_width: item.media_width,
+    //                 media_height: item.media_height,
+    //                 media_duration: item.media_duration,
+    //                 is_editable: item.is_editable,
+    //                 has_thumbnail: item.has_thumbnail,
+    //                 is_global: item.is_global,
+    //             }),
+    //             using_variant: None,
+    //         });
+    //     }
+    // }
+
+    Ok(Json(WrappingResponse::okay(api::CmsRowResponse {
+        files,
+        fields,
+    })))
+}
+
+#[derive(serde::Deserialize)]
+pub struct UpdateCmsDataCell {
+    pub field_name: String,
+    pub value: Option<api::SimpleValue>,
+}
+
+pub async fn update_cms_row_cell(
+    Path((addon_id, coll, row_id)): Path<(Uuid, CollectionName, Uuid)>,
+    State(db): State<SqlitePool>,
+
+    Json(UpdateCmsDataCell { field_name, value }): Json<UpdateCmsDataCell>,
+) -> Result<JsonResponse<&'static str>> {
+    let mut acq = db.acquire().await?;
+
+    let addon = AddonModel::find_one_by_guid(addon_id, &mut *acq)
+        .await?
+        .context("Addon not found")?;
+
+    let schema = SchemaModel::find_one_by_public_id(addon.id, &coll.id, &mut *acq)
+        .await?
+        .context("Schema not found")?;
+
+    let Some(schema_field) = schema
+        .fields
+        .get(&SchematicFieldKey::Other(field_name.clone()))
+    else {
+        return Err(eyre::eyre!("Schema Field not found"))?;
+    };
+
+    let Some(schema_data) =
+        SchemaDataFieldUpdate::find_data_field_by_uuid(row_id, schema_field.field_type, &mut *acq)
+            .await?
+    else {
+        return Err(eyre::eyre!("Schema Data not found"))?;
+    };
+
+    schema_data
+        .update(
+            field_name,
+            value
+                .map(|v| schema_field.field_type.parse_value(v))
+                .transpose()?,
+            &mut *acq,
+        )
+        .await?;
+
+    Ok(Json(WrappingResponse::okay("ok")))
+}
+
+pub async fn create_new_data_row(
+    Path((addon_id, coll)): Path<(Uuid, CollectionName)>,
+    State(db): State<SqlitePool>,
+) -> Result<JsonResponse<api::CmsRowResponse>> {
+    let mut acq = db.acquire().await?;
+
+    let addon = AddonModel::find_one_by_guid(addon_id, &mut *acq)
+        .await?
+        .context("Addon not found")?;
+
+    let schema = SchemaModel::find_one_by_public_id(addon.id, &coll.id, &mut *acq)
+        .await?
+        .context("Schema not found")?;
+
+    let data_row = NewSchemaDataModel::new(addon.id, schema.id)
+        .insert(&mut *acq)
+        .await?;
+
+    Ok(Json(WrappingResponse::okay(api::CmsRowResponse {
+        files: Vec::new(),
+        fields: map_to_field_value(&schema, data_row, None)?,
+    })))
 }
 
 fn map_to_field_value(
