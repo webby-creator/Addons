@@ -1092,6 +1092,7 @@ pub async fn get_cms_info(
         tags: tags
             .into_iter()
             .map(|t| SchemaTag {
+                id: *t.id as i32,
                 row_id: t.row_id,
                 name: t.name,
                 color: t.color,
@@ -1464,6 +1465,7 @@ pub async fn add_data_column_tag(
             schema.update(&mut *acq).await?;
 
             Ok(Json(WrappingResponse::okay(api::SchemaTag {
+                id: *tag.id as i32,
                 row_id: tag.row_id,
                 name: tag.name,
                 color: tag.color,
