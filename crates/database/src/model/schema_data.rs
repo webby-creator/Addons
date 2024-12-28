@@ -399,6 +399,43 @@ impl NewSchemaDataModel {
 }
 
 impl SchemaDataModel {
+    pub fn into_new(self) -> NewSchemaDataModel {
+        let now = OffsetDateTime::now_utc();
+
+        NewSchemaDataModel {
+            addon_id: self.addon_id,
+            schema_id: self.schema_id,
+            public_id: Uuid::now_v7(),
+
+            field_text: self.field_text,
+            field_number: self.field_number,
+            field_url: self.field_url,
+            field_email: self.field_email,
+            field_address: self.field_address,
+            field_phone: self.field_phone,
+            field_bool: self.field_bool,
+            field_datetime: self.field_datetime,
+            field_date: self.field_date,
+            field_time: self.field_time,
+            field_rich_content: self.field_rich_content,
+            field_rich_text: self.field_rich_text,
+            field_reference: self.field_reference,
+            field_multi_reference: self.field_multi_reference,
+            field_gallery: self.field_gallery,
+            field_document: self.field_document,
+            field_multi_document: self.field_multi_document,
+            field_image: self.field_image,
+            field_video: self.field_video,
+            field_audio: self.field_audio,
+            field_tags: self.field_tags,
+            field_array: self.field_array,
+            field_object: self.field_object,
+
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
     pub async fn find_by_website_id(
         addon_id: AddonId,
         db: &mut SqliteConnection,

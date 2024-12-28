@@ -115,6 +115,10 @@ pub async fn serve(pool: Pool<Sqlite>) -> Result<()> {
                 "/addon/:guid/schema/:name/row/:row_id",
                 get(get_cms_row).post(update_cms_row_cell),
             )
+            .route(
+                "/addon/:guid/schema/:name/row/:row_id/duplicate",
+                post(duplicate_cms_row_cell),
+            )
             .route("/site/:website/schemas", get(get_website_schemas))
             .route("/site/:website/duplicate", post(duplicate_website_addons))
             //
@@ -1661,6 +1665,33 @@ pub async fn create_new_data_row(
     Ok(Json(WrappingResponse::okay(api::CmsRowResponse {
         files: Vec::new(),
         fields: map_to_field_value(&schema, data_row, None)?,
+    })))
+}
+
+pub async fn duplicate_cms_row_cell(
+    Path((addon_id, coll, row_id)): Path<(Uuid, CollectionName, Uuid)>,
+    State(db): State<SqlitePool>,
+) -> Result<JsonResponse<api::CmsRowResponse>> {
+    let mut acq = db.acquire().await?;
+
+    let addon = AddonModel::find_one_by_guid(addon_id, &mut *acq)
+        .await?
+        .context("Addon not found")?;
+
+    let schema = SchemaModel::find_one_by_public_id(addon.id, &coll.id, &mut *acq)
+        .await?
+        .context("Schema not found")?;
+
+    let schema_data = SchemaDataModel::find_by_public_id(row_id, &mut *acq)
+        .await?
+        .context("Schema Data not found")?
+        .into_new()
+        .insert(&mut *acq)
+        .await?;
+
+    Ok(Json(WrappingResponse::okay(api::CmsRowResponse {
+        files: Vec::new(),
+        fields: map_to_field_value(&schema, schema_data, None)?,
     })))
 }
 
