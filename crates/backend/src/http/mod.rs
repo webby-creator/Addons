@@ -1335,9 +1335,9 @@ pub async fn get_cms_query(
         }
 
         Ok(Json(WrappingResponse::okay(ListResponse {
-            offset: offset as usize,
-            limit: limit as usize,
-            total: total as usize,
+            offset,
+            limit,
+            total,
             items,
         })))
     }
