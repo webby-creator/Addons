@@ -826,7 +826,7 @@ async fn get_addon_schemas(
             .map(|schema| BasicCmsInfo {
                 id: schema.name,
                 name: schema.display_name,
-                namespace: Some(addon.name_id.clone()),
+                namespace: Some(format!("@{}", addon.name_id)),
             })
             .collect(),
     ))))
@@ -1521,10 +1521,11 @@ pub async fn get_cms_row(
         .await?
         .context("Addon not found")?;
 
-    let schema = SchemaModel::find_one_by_public_id(addon.id, &coll.id, &mut *acq)
+    let schema: SchemaModel = SchemaModel::find_one_by_public_id(addon.id, &coll.id, &mut *acq)
         .await?
         .context("Schema not found")?;
 
+    // TODO: add schema.id to find
     let Some(schema_data) = SchemaDataModel::find_by_public_id(row_id, &mut *acq).await? else {
         return Err(eyre::eyre!("Schema Data not found"))?;
     };

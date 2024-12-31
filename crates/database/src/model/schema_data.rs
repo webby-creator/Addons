@@ -1053,8 +1053,8 @@ impl SchemaDataFieldUpdate {
                 update_data(field_name, field_value, &mut data_value, |field_value| {
                     // String of UUIDs
                     Ok(
-                        if let SchematicFieldValue::Text(field_value) = field_value {
-                            Some(Uuid::parse_str(&field_value)?)
+                        if let SchematicFieldValue::Reference(field_value) = field_value {
+                            Some(field_value)
                         } else {
                             None
                         },
@@ -1068,13 +1068,8 @@ impl SchemaDataFieldUpdate {
                 update_data(field_name, field_value, &mut data_value, |field_value| {
                     // String of UUIDs
                     Ok(
-                        if let SchematicFieldValue::ListString(field_value) = field_value {
-                            Some(
-                                field_value
-                                    .into_iter()
-                                    .map(|v| Uuid::parse_str(&v))
-                                    .collect::<std::result::Result<_, _>>()?,
-                            )
+                        if let SchematicFieldValue::MultiReference(field_value) = field_value {
+                            Some(field_value)
                         } else {
                             None
                         },
