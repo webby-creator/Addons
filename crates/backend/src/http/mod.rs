@@ -25,6 +25,7 @@ use database::{
 use eyre::ContextCompat;
 use futures::TryStreamExt;
 use global_common::{
+    request::CmsQuery,
     response::{BasicCmsInfo, CmsResponse, CmsRowResponse, PublicSchema, SchemaTag},
     schema::{SchematicFieldKey, SchematicFieldType},
     uuid::CollectionName,
@@ -1135,31 +1136,17 @@ pub async fn update_cms(
     Ok(Json(WrappingResponse::okay("ok")))
 }
 
-#[derive(serde::Deserialize)]
-pub struct CmsQuery {
-    filter: Option<String>,
-    // sort[name]=ASC
-    sort: Option<HashMap<String, String>>,
-    /// Columns which should be returned
-    columns: Option<String>,
-
-    limit: Option<u64>,
-    offset: Option<u64>,
-    // #[serde(default)]
-    // include_files: bool,
-}
-
 // TODO: Instead of addon id use instance id ??
 // We need to not only return an instances' cms but also default values
 pub async fn get_cms_query(
     Path((addon_id, coll)): Path<(Uuid, CollectionName)>,
     QsQuery(CmsQuery {
-        filter,
+        filters,
         sort,
         columns,
         limit,
         offset,
-        // include_files,
+        include_files,
     }): QsQuery<CmsQuery>,
     State(db): State<SqlitePool>,
 ) -> Result<JsonListResponse<CmsRowResponse>> {
@@ -1237,13 +1224,18 @@ pub async fn get_cms_query(
             Ok(Json(resp.json().await?))
         }
     } else {
-        let total =
-            SchemaDataModel::count_by(addon.id, &schema, filter.as_deref(), &mut *acq).await?;
+        let total = SchemaDataModel::count_by(
+            addon.id,
+            &schema,
+            filters.as_ref().map(|v| v.as_slice()),
+            &mut *acq,
+        )
+        .await?;
 
         let data = SchemaDataModel::find_by(
             addon.id,
             &schema,
-            filter.as_deref(),
+            filters.as_ref().map(|v| v.as_slice()),
             sort,
             offset,
             limit,

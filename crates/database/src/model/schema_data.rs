@@ -1,7 +1,11 @@
-use std::collections::HashMap;
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::Write,
+};
 
-use eyre::Result;
+use eyre::{ContextCompat, Result};
 use global_common::{
+    filter::{Filter, FilterConditionType, FilterValue},
     schema::{SchematicFieldKey, SchematicFieldType, SchematicFieldValue},
     value::Number,
 };
@@ -481,27 +485,11 @@ impl SchemaDataModel {
         .await?)
     }
 
-    // TODO: Convert to have ability to have advanced filtering AND ordering (we can only filter primary and order once)
-    // Maybe something like this
-    // SELECT
-    //     schema_data.id,
-    //     schema_data.field_text,
-    //     json1.*
-    // FROM
-    //     schema_data,
-    //     json_tree(schema_data.field_text) as json1
-    // WHERE
-    //     json1.type = "text"
-    // GROUP BY
-    //      schema_data.id
-    // ORDER BY
-    //     CASE WHEN json1.key = "text" THEN json1.value END DESC,
-    //     CASE WHEN json1.key = "noop" THEN json1.value END ASC
     pub async fn find_by(
         addon_id: AddonId,
         schema: &SchemaModel,
 
-        filter: Option<&str>,
+        filter: Option<&[Filter]>,
         order: Option<HashMap<String, String>>,
 
         offset: i64,
@@ -512,202 +500,6 @@ impl SchemaDataModel {
         let schema_id = schema.id;
 
         match (filter, order) {
-            (Some(filter), Some(order)) => {
-                // Order
-                let Some((order_field, order_dir)) = order.into_iter().next() else {
-                    return Err(eyre::eyre!("Unable to find order"))?;
-                };
-
-                let order_dir = match order_dir.to_lowercase().as_str() {
-                    "desc" => "DESC",
-                    _ => "ASC"
-                };
-
-                let Some((order_field_key, field)) = schema
-                    .fields
-                    .get_key_value(&SchematicFieldKey::Other(order_field.clone())) else {
-                        return Err(eyre::eyre!("Unable to find order field"))?;
-                    };
-
-                let order_name = field_type_to_sql_name(field.field_type);
-
-                // Field
-                let field_id = &schema.primary_field;
-
-                let Some(field) = schema
-                    .fields
-                    .get(&SchematicFieldKey::Other(schema.primary_field.clone())) else {
-                        return Err(eyre::eyre!("Unable to find primary field"))?;
-                    };
-
-                let field_name = field_type_to_sql_name(field.field_type);
-
-                if let SchematicFieldKey::Other(key) = order_field_key {
-                    Ok(sqlx::query_as(
-                        &format!(
-                            "SELECT schema_data.id, addon_id, schema_id, public_id,
-                                field_text, field_number, field_url, field_email, field_address, field_phone, field_bool, field_datetime, field_date,
-                                field_time, field_rich_content, field_rich_text, field_reference, field_multi_reference, field_gallery, field_document,
-                                field_multi_document, field_image, field_video, field_audio, field_tags, field_array, field_object,
-                                created_at, updated_at, deleted_at
-                            FROM
-                                schema_data,
-                                json_tree(schema_data.{field_name}, '$.{field_id}') as json_filter,
-                                json_tree(json_patch('{{ \"{key}\": null }}', schema_data.{order_name}), '$.{key}') as json_order
-                            WHERE
-                                addon_id = $1 AND
-                                schema_id = $2 AND
-                                (({field_name} IS NOT NULL AND json_filter.value LIKE $3) OR hex(public_id) LIKE $3)
-                            ORDER BY
-                                json_order.value {order_dir} NULLS LAST
-                            LIMIT {limit} OFFSET {offset}"
-                        ),
-                    )
-                    .bind(addon_id)
-                    .bind(schema_id)
-                    .bind(format!("%{filter}%"))
-                    .fetch_all(db)
-                    .await?)
-                } else {
-                    let key = match order_field_key {
-                        SchematicFieldKey::Id => "id",
-                        SchematicFieldKey::Owner => "addon_id",
-                        SchematicFieldKey::CreatedAt => "created_at",
-                        SchematicFieldKey::UpdatedAt => "updated_at",
-                        _ => unreachable!()
-                    };
-
-                    Ok(sqlx::query_as(
-                        &format!(
-                            "SELECT schema_data.id, addon_id, schema_id, public_id,
-                                field_text, field_number, field_url, field_email, field_address, field_phone, field_bool, field_datetime, field_date,
-                                field_time, field_rich_content, field_rich_text, field_reference, field_multi_reference, field_gallery, field_document,
-                                field_multi_document, field_image, field_video, field_audio, field_tags, field_array, field_object,
-                                created_at, updated_at, deleted_at
-                            FROM
-                                schema_data,
-                                json_tree(schema_data.{field_name}, '$.{field_id}') as json_filter
-                            WHERE
-                                addon_id = $1 AND
-                                schema_id = $2 AND
-                                (({field_name} IS NOT NULL AND json_filter.value LIKE $3) OR hex(public_id) LIKE $3)
-                            ORDER BY
-                                {key} {order_dir} NULLS LAST
-                            LIMIT {limit} OFFSET {offset}"
-                        ),
-                    )
-                    .bind(addon_id)
-                    .bind(schema_id)
-                    .bind(format!("%{filter}%"))
-                    .fetch_all(db)
-                    .await?)
-                }
-            }
-
-            (None, Some(order)) => {
-                let Some((order_field, order_dir)) = order.into_iter().next() else {
-                    return Err(eyre::eyre!("Unable to find order"))?;
-                };
-
-                let order_dir = match order_dir.to_lowercase().as_str() {
-                    "desc" => "DESC",
-                    _ => "ASC"
-                };
-
-                let Some((order_field_key, field)) = schema
-                    .fields
-                    .get_key_value(&SchematicFieldKey::Other(order_field.clone())) else {
-                        return Err(eyre::eyre!("Unable to find order field"))?;
-                    };
-
-                let order_name = field_type_to_sql_name(field.field_type);
-
-                if let SchematicFieldKey::Other(key) = order_field_key {
-                    Ok(sqlx::query_as(&format!(
-                        "SELECT
-                            schema_data.id, addon_id, schema_id, public_id,
-                            field_text, field_number, field_url, field_email, field_address, field_phone, field_bool, field_datetime, field_date,
-                            field_time, field_rich_content, field_rich_text, field_reference, field_multi_reference, field_gallery, field_document,
-                            field_multi_document, field_image, field_video, field_audio, field_tags, field_array, field_object,
-                            created_at, updated_at, deleted_at
-                        FROM
-                            schema_data,
-                            json_tree(json_patch('{{ \"{key}\": null }}', schema_data.{order_name}), '$.{key}') as json_order
-                        WHERE
-                            schema_id = $1
-                        ORDER BY
-                            json_order.value {order_dir} NULLS LAST
-                        LIMIT {limit} OFFSET {offset}",
-                    ))
-                    .bind(schema_id)
-                    .fetch_all(db)
-                    .await?)
-                } else {
-                    let key = match order_field_key {
-                        SchematicFieldKey::Id => "id",
-                        SchematicFieldKey::Owner => "addon_id",
-                        SchematicFieldKey::CreatedAt => "created_at",
-                        SchematicFieldKey::UpdatedAt => "updated_at",
-                        _ => unreachable!()
-                    };
-
-                    Ok(sqlx::query_as(&format!(
-                        "SELECT
-                            schema_data.id, addon_id, schema_id, public_id,
-                            field_text, field_number, field_url, field_email, field_address, field_phone, field_bool, field_datetime, field_date,
-                            field_time, field_rich_content, field_rich_text, field_reference, field_multi_reference, field_gallery, field_document,
-                            field_multi_document, field_image, field_video, field_audio, field_tags, field_array, field_object,
-                            created_at, updated_at, deleted_at
-                        FROM
-                            schema_data
-                        WHERE
-                            schema_id = $1
-                        ORDER BY
-                            {key} {order_dir} NULLS LAST
-                        LIMIT {limit} OFFSET {offset}",
-                    ))
-                    .bind(schema_id)
-                    .fetch_all(db)
-                    .await?)
-                }
-
-            }
-
-            (Some(filter), None) => {
-                let field_id = &schema.primary_field;
-
-                let Some(field) = schema
-                    .fields
-                    .get(&SchematicFieldKey::Other(schema.primary_field.clone())) else {
-                        return Err(eyre::eyre!("Unable to find primary field"))?;
-                    };
-
-                let field_name = field_type_to_sql_name(field.field_type);
-
-                Ok(sqlx::query_as(
-                    &format!(
-                        "SELECT schema_data.id, addon_id, schema_id, public_id,
-                            field_text, field_number, field_url, field_email, field_address, field_phone, field_bool, field_datetime, field_date,
-                            field_time, field_rich_content, field_rich_text, field_reference, field_multi_reference, field_gallery, field_document,
-                            field_multi_document, field_image, field_video, field_audio, field_tags, field_array, field_object,
-                            created_at, updated_at, deleted_at
-                        FROM
-                            schema_data,
-                            json_tree(schema_data.{field_name}, '$.{field_id}') as json_filter
-                        WHERE
-                            addon_id = $1 AND
-                            schema_id = $2 AND
-                            (({field_name} IS NOT NULL AND json_filter.value LIKE $3) OR hex(public_id) LIKE $3)
-                        LIMIT {limit} OFFSET {offset}"
-                    ),
-                )
-                .bind(addon_id)
-                .bind(schema_id)
-                .bind(format!("%{filter}%"))
-                .fetch_all(db)
-                .await?)
-            }
-
             (None, None) => {
                 Ok(sqlx::query_as(
                     "SELECT
@@ -727,6 +519,228 @@ impl SchemaDataModel {
                 .fetch_all(db)
                 .await?)
             }
+
+            (filter, order) => {
+                let filters = filter.unwrap_or_default();
+
+                // TODO: Multiple Ordering
+                // Order
+                let (order_json_tree, order_by) = if let Some(order) = order {
+                    let Some((order_field, order_dir)) = order.into_iter().next() else {
+                        return Err(eyre::eyre!("Unable to find order"))?;
+                    };
+
+                    let order_dir = match order_dir.to_lowercase().as_str() {
+                        "desc" => "DESC",
+                        _ => "ASC"
+                    };
+
+                    let Some((order_field_key, field)) = schema
+                        .fields
+                        .get_key_value(&SchematicFieldKey::Other(order_field.clone())) else {
+                            return Err(eyre::eyre!("Unable to find order field"))?;
+                        };
+
+                    let order_name = field_type_to_sql_name(field.field_type);
+
+                    (Some((order_field_key, order_name)), Some((order_field_key, order_dir)))
+                } else {
+                    (None, None)
+                };
+
+                // Field
+
+                let mut sql_building =
+                    String::from("SELECT schema_data.id, addon_id, schema_id, public_id,
+    field_text, field_number, field_url, field_email, field_address, field_phone, field_bool, field_datetime, field_date,
+    field_time, field_rich_content, field_rich_text, field_reference, field_multi_reference, field_gallery, field_document,
+    field_multi_document, field_image, field_video, field_audio, field_tags, field_array, field_object,
+    created_at, updated_at, deleted_at
+FROM schema_data");
+
+                // If we're using custom field ordering
+                if let Some((order_field_key, order_name)) = order_json_tree {
+                    if let SchematicFieldKey::Other(key) = order_field_key {
+                        sql_building.push_str(",\n");
+
+                        writeln!(
+                            &mut sql_building,
+                            "json_tree(json_patch('{{ \"{key}\": null }}', schema_data.{order_name}), '$.{key}') as json_order",
+                        )?;
+                    }
+                }
+
+                // If we're using custom field filtering
+                let mut added_filters = HashSet::new();
+
+                for filter in filters {
+                    if added_filters.contains(&filter.name) {
+                        continue;
+                    }
+
+                    added_filters.insert(filter.name.clone());
+
+                    sql_building.push_str(",\n");
+
+                    let field = schema
+                        .fields
+                        .get(&SchematicFieldKey::Other(filter.name.clone()))
+                        .context("Unable to find primary field")?;
+
+                    let column_name = field_type_to_sql_name(field.field_type);
+
+                    writeln!(
+                        &mut sql_building,
+                        "json_tree(schema_data.{column_name}, '$.{filter_name}') as json_{filter_name}",
+                        filter_name = filter.name,
+                    )?;
+                }
+
+                writeln!(
+                    &mut sql_building,
+                    "WHERE addon_id = $1 AND schema_id = $2"
+                )?;
+
+                let mut pos = 3;
+
+                // WHERE FILTER
+                for filter in filters {
+                    sql_building.push_str(" AND\n");
+
+                    let field = schema
+                        .fields
+                        .get(&SchematicFieldKey::Other(filter.name.clone()))
+                        .context("Unable to find primary field")?;
+
+                    let column_name = field_type_to_sql_name(field.field_type);
+
+                    let cond = match filter.cond {
+                        // Text
+                        FilterConditionType::Cont => "LIKE",
+                        FilterConditionType::Dnc => "NOT LIKE",
+
+                        FilterConditionType::Eq => "=",
+                        FilterConditionType::Neq => "!=",
+                        FilterConditionType::Gte => ">=",
+                        FilterConditionType::Gt => ">",
+                        FilterConditionType::Lte => "<=",
+                        FilterConditionType::Lt => "<",
+
+                        FilterConditionType::Between => "BETWEEN",
+                    };
+
+                    if filter.value.is_range() && filter.cond == FilterConditionType::Between {
+                        writeln!(
+                            &mut sql_building,
+                            "({column_name} IS NOT NULL AND json_{filter_name}.value {cond} ${pos} AND ${pos2})",
+                            filter_name = filter.name,
+                            pos2 = pos + 1,
+                        )?;
+
+                        pos += 2;
+                    } else {
+                        writeln!(
+                            &mut sql_building,
+                            "({column_name} IS NOT NULL AND json_{filter_name}.value {cond} ${pos})",
+                            filter_name = filter.name,
+                        )?;
+
+                        pos += 1;
+                    }
+                }
+
+                // ORDER BY
+                if let Some((order_field_key, order_dir)) = order_by {
+                    if order_field_key.is_other() {
+                        sql_building.push_str("\nORDER BY ");
+
+                        writeln!(
+                            &mut sql_building,
+                            "json_order.value {order_dir} NULLS LAST",
+                        )?;
+                    } else {
+                        let key = match order_field_key {
+                            SchematicFieldKey::Id => "id",
+                            SchematicFieldKey::Owner => "creator_id",
+                            SchematicFieldKey::CreatedAt => "created_at",
+                            SchematicFieldKey::UpdatedAt => "updated_at",
+                            _ => unreachable!()
+                        };
+
+                        sql_building.push_str("\nORDER BY ");
+
+                        writeln!(
+                            &mut sql_building,
+                            "{key} {order_dir} NULLS LAST",
+                        )?;
+                    }
+                }
+
+                // LIMIT
+                writeln!(
+                    &mut sql_building,
+                    "LIMIT {limit} OFFSET {offset}",
+                )?;
+
+                // Query
+                let mut query = sqlx::query_as(&sql_building)
+                    .bind(addon_id)
+                    .bind(schema_id);
+
+                for filter in filters {
+                    // TODO: BUG FIX: Instead of FilterValue being a Number, it'll be Text
+                    let field = schema
+                        .fields
+                        .get(&SchematicFieldKey::Other(filter.name.clone()))
+                        .context("Unable to find primary field")?;
+
+                    let mut value = filter.value.clone();
+
+                    if matches!(field.field_type, SchematicFieldType::Number) {
+                        value = match value {
+                            FilterValue::Text(v) => {
+                                if v.contains(".") {
+                                    if let Ok(number) = v.parse() {
+                                        FilterValue::Number(Number::Float(number))
+                                    } else {
+                                        FilterValue::Text(v)
+                                    }
+                                } else if let Ok(number) = v.parse() {
+                                    FilterValue::Number(Number::Integer(number))
+                                } else {
+                                    FilterValue::Text(v)
+                                }
+                            }
+
+                            v => v
+                        };
+                    }
+
+                    if value.is_range() && filter.cond == FilterConditionType::Between {
+                        if let FilterValue::Range((min, max)) = value {
+                            query = query.bind(min.convert_f64()).bind(max.convert_f64());
+                        }
+                    } else if filter.cond == FilterConditionType::Cont
+                        || filter.cond == FilterConditionType::Dnc
+                    {
+                        query = query.bind(format!("%{value}%"));
+                    } else {
+                        match &value {
+                            &FilterValue::Number(n) => {
+                                match n {
+                                    Number::Byte(n) => query = query.bind(n),
+                                    Number::Integer(n) => query = query.bind(n),
+                                    Number::Float(n) => query = query.bind(n),
+                                }
+                            }
+
+                            v => query = query.bind(v.to_string()),
+                        }
+                    }
+                }
+
+                Ok(query.fetch_all(db).await?)
+            }
         }
     }
 
@@ -734,42 +748,110 @@ impl SchemaDataModel {
         addon_id: AddonId,
         schema: &SchemaModel,
 
-        filter: Option<&str>,
+        filter: Option<&[Filter]>,
 
         db: &mut SqliteConnection,
     ) -> Result<i64> {
         let schema_id = schema.id;
 
         match filter {
-            Some(filter) => {
-                let field_id = &schema.primary_field;
+            Some(filters) => {
+                let mut sql_building =
+                    String::from("SELECT COUNT(schema_data.id) FROM schema_data");
 
-                let Some(field) = schema
-                    .fields
-                    .get(&SchematicFieldKey::Other(schema.primary_field.clone()))
-                else {
-                    return Err(eyre::eyre!("Unable to find primary field"))?;
-                };
+                let mut added_filters = HashSet::new();
 
-                let field_name = field_type_to_sql_name(field.field_type);
+                for filter in filters {
+                    if added_filters.contains(&filter.name) {
+                        continue;
+                    }
 
-                Ok(sqlx::query_scalar(
-                    &format!(
-                        "SELECT COUNT(schema_data.id)
-                        FROM
-                            schema_data,
-                            json_tree(schema_data.{field_name}, '$.{field_id}') as json_filter
-                        WHERE
-                            addon_id = $1 AND
-                            schema_id = $2 AND
-                            (({field_name} IS NOT NULL AND json_filter.value LIKE $3) OR hex(public_id) LIKE $3)"
-                    ),
-                )
-                .bind(addon_id)
-                .bind(schema_id)
-                .bind(format!("%{filter}%"))
-                .fetch_one(db)
-                .await?)
+                    added_filters.insert(filter.name.clone());
+
+                    sql_building.push_str(",\n");
+
+                    let field = schema
+                        .fields
+                        .get(&SchematicFieldKey::Other(filter.name.clone()))
+                        .context("Unable to find primary field")?;
+
+                    let column_name = field_type_to_sql_name(field.field_type);
+
+                    writeln!(
+                        &mut sql_building,
+                        "json_tree(schema_data.{column_name}, '$.{filter_name}') as json_{filter_name}",
+                        filter_name = filter.name,
+                    )?;
+                }
+
+                writeln!(&mut sql_building, "WHERE addon_id = $1 AND schema_id = $2")?;
+
+                let mut pos = 3;
+
+                for filter in filters {
+                    sql_building.push_str(" AND\n");
+
+                    let field = schema
+                        .fields
+                        .get(&SchematicFieldKey::Other(filter.name.clone()))
+                        .context("Unable to find primary field")?;
+
+                    let column_name = field_type_to_sql_name(field.field_type);
+
+                    let cond = match filter.cond {
+                        // Text
+                        FilterConditionType::Cont => "LIKE",
+                        FilterConditionType::Dnc => "NOT LIKE",
+
+                        FilterConditionType::Eq => "=",
+                        FilterConditionType::Neq => "!=",
+                        FilterConditionType::Gte => ">=",
+                        FilterConditionType::Gt => ">",
+                        FilterConditionType::Lte => "<=",
+                        FilterConditionType::Lt => "<",
+
+                        FilterConditionType::Between => "BETWEEN",
+                    };
+
+                    if filter.value.is_range() && filter.cond == FilterConditionType::Between {
+                        writeln!(
+                            &mut sql_building,
+                            "({column_name} IS NOT NULL AND json_{filter_name}.value {cond} ${pos} AND ${pos2})",
+                            filter_name = filter.name,
+                            pos2 = pos + 1,
+                        )?;
+
+                        pos += 2;
+                    } else {
+                        writeln!(
+                            &mut sql_building,
+                            "({column_name} IS NOT NULL AND json_{filter_name}.value {cond} ${pos})",
+                            filter_name = filter.name,
+                        )?;
+
+                        pos += 1;
+                    }
+                }
+
+                let mut query = sqlx::query_scalar(&sql_building)
+                    .bind(addon_id)
+                    .bind(schema_id);
+
+                for filter in filters {
+                    if filter.value.is_range() && filter.cond == FilterConditionType::Between {
+                        if let FilterValue::Range((min, max)) = filter.value {
+                            query = query.bind(min.convert_f64()).bind(max.convert_f64());
+                        }
+                    } else if filter.cond == FilterConditionType::Cont
+                        || filter.cond == FilterConditionType::Dnc
+                    {
+                        query = query.bind(format!("%{}%", filter.value));
+                    } else {
+                        query = query.bind(filter.value.to_string());
+                    }
+                }
+
+                Ok(query.fetch_one(db).await?)
             }
 
             None => Ok(sqlx::query_scalar(
