@@ -112,6 +112,7 @@ pub async fn serve(pool: Pool<Sqlite>) -> Result<()> {
                 post(add_data_column_tag),
             )
             .route("/addon/:guid/schema/:name/row", post(create_new_data_row))
+            .route("/addon/:guid/schema/:name/import", post(import_data_rows))
             .route(
                 "/addon/:guid/schema/:name/row/:row_id",
                 get(get_cms_row).post(update_cms_row_cell),
@@ -1659,6 +1660,106 @@ pub async fn create_new_data_row(
         files: Vec::new(),
         fields: map_to_field_value(&schema, data_row, None)?,
     })))
+}
+
+pub async fn import_data_rows(
+    Path((addon_id, coll)): Path<(Uuid, CollectionName)>,
+    State(db): State<SqlitePool>,
+
+    Json(map): Json<HashMap<String, Vec<SimpleValue>>>,
+) -> Result<JsonResponse<&'static str>> {
+    // TODO: Receive full file to somehow hash each line to have a unique import_id to prevent duplication?
+
+    let mut acq = db.acquire().await?;
+
+    let addon = AddonModel::find_one_by_guid(addon_id, &mut *acq)
+        .await?
+        .context("Addon not found")?;
+
+    let schema = SchemaModel::find_one_by_public_id(addon.id, &coll.id, &mut *acq)
+        .await?
+        .context("Schema not found")?;
+
+    let mut inserting_rows = map
+        .values()
+        .next()
+        .unwrap()
+        .iter()
+        .map(|_| NewSchemaDataModel::new(addon.id, schema.id))
+        .collect::<Vec<_>>();
+
+    acq.transaction(|trx| {
+        Box::pin(async move {
+            for (key, mut value) in map {
+                let key = SchematicFieldKey::Other(key);
+
+                if let Some(field) = schema.fields.get(&key) {
+                    // TODO: Incorporate into insert_field/parse_value
+                    if field.field_type == SchematicFieldType::Tags {
+                        let mut adding_tags: HashMap<String, i64> = HashMap::new();
+
+                        for val in value.iter_mut() {
+                            if let SimpleValue::Text(text_list) = val.clone() {
+                                // Nothing in Text?
+                                if text_list.trim().is_empty() {
+                                    *val = SimpleValue::ListNumber(Vec::new());
+                                    continue;
+                                }
+
+                                let mut items = Vec::new();
+
+                                for text in text_list.split(",") {
+                                    let trimmed = text.trim();
+
+                                    // We don't want to call the DB for no reason
+                                    if let Some(found) =
+                                        adding_tags.get(&trimmed.to_lowercase()).copied()
+                                    {
+                                        items.push(found.into());
+                                    } else {
+                                        let model = SchemaDataTagModel::insert(
+                                            schema.id,
+                                            key.to_string(),
+                                            trimmed.to_string(),
+                                            String::from("#FAF"),
+                                            trx,
+                                        )
+                                        .await?;
+
+                                        adding_tags.insert(model.name.to_lowercase(), *model.id);
+
+                                        items.push((*model.id as i32).into());
+                                    }
+                                }
+
+                                *val = SimpleValue::ListNumber(items);
+                            } else {
+                                warn!("Import: Expected Text, Found {val:?}");
+                            }
+                        }
+                    }
+
+                    for (i, value) in value.into_iter().enumerate() {
+                        inserting_rows[i].insert_field(
+                            key.to_string(),
+                            false,
+                            field.field_type,
+                            field.field_type.parse_value(value)?,
+                        )?;
+                    }
+                }
+            }
+
+            for row in inserting_rows {
+                row.insert(trx).await?;
+            }
+
+            Result::<_, crate::Error>::Ok(())
+        })
+    })
+    .await?;
+
+    Ok(Json(WrappingResponse::okay("ok")))
 }
 
 pub async fn duplicate_cms_row_cell(
