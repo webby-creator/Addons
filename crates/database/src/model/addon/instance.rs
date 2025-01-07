@@ -77,6 +77,12 @@ impl AddonInstanceModel {
         Ok(res.rows_affected())
     }
 
+    pub async fn delete(self, db: &mut SqliteConnection) -> Result<u64> {
+        Self::delete_by_id(self.id, db).await
+    }
+
+    //
+
     pub async fn find_by_uuid(uuid: Uuid, db: &mut SqliteConnection) -> Result<Option<Self>> {
         Ok(sqlx::query_as(
             "SELECT id, public_id, addon_id, website_id, website_uuid, is_setup, delete_reason, created_at, updated_at, deleted_at FROM addon_instance WHERE public_id = $1",

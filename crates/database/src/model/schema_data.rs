@@ -356,9 +356,35 @@ impl NewSchemaDataModel {
                     .get_or_insert_with(Default::default)
                     .insert(field_name, value.try_as_text()?);
             }
-            SchematicFieldType::Reference => todo!(),
-            SchematicFieldType::MultiReference => todo!(),
-            SchematicFieldType::MediaGallery => todo!(),
+            SchematicFieldType::Reference => {
+                self.field_reference
+                    .get_or_insert_with(Default::default)
+                    .insert(field_name, Uuid::parse_str(&value.try_as_text()?)?);
+            }
+            SchematicFieldType::MultiReference => {
+                self.field_multi_reference
+                    .get_or_insert_with(Default::default)
+                    .insert(
+                        field_name,
+                        value
+                            .try_as_list_string()?
+                            .into_iter()
+                            .map(|v| Uuid::parse_str(&v))
+                            .collect::<Result<Vec<_>, uuid::Error>>()?,
+                    );
+            }
+            SchematicFieldType::MediaGallery => {
+                self.field_gallery
+                    .get_or_insert_with(Default::default)
+                    .insert(
+                        field_name,
+                        value
+                            .try_as_list_string()?
+                            .into_iter()
+                            .map(|v| Uuid::parse_str(&v))
+                            .collect::<Result<Vec<_>, uuid::Error>>()?,
+                    );
+            }
             SchematicFieldType::Document => {
                 self.field_document
                     .get_or_insert_with(Default::default)
@@ -394,8 +420,16 @@ impl NewSchemaDataModel {
                         .collect(),
                 );
             }
-            SchematicFieldType::Array => todo!(),
-            SchematicFieldType::Object => todo!(),
+            SchematicFieldType::Array => {
+                self.field_array
+                    .get_or_insert_with(Default::default)
+                    .insert(field_name, value.try_as_array()?);
+            }
+            SchematicFieldType::Object => {
+                self.field_object
+                    .get_or_insert_with(Default::default)
+                    .insert(field_name, value.try_as_object()?);
+            }
         }
 
         Ok(())
@@ -1164,6 +1198,7 @@ impl SchemaDataFieldUpdate {
                 update_data(field_name, field_value, &mut data_value, |field_value| {
                     // String of UUIDs
                     Ok(
+                        // TODO: May use SchematicFieldValue::MultiReference for this
                         if let SchematicFieldValue::ListString(field_value) = field_value {
                             Some(
                                 field_value

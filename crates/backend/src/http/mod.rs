@@ -5,9 +5,10 @@ use std::{
 };
 
 use addon_common::{
-    InstallResponse, JsonListResponse, JsonResponse, ListResponse, WrappingResponse,
+    InstallResponse, JsonListResponse, JsonResponse, ListResponse, MemberPartial, MemberUuid,
+    RegisterNewJson, WebsitePartial, WebsiteUuid, WrappingResponse,
 };
-use api::schema::{SchemaView, SchematicField};
+use api::{schema::SchematicField, CmsCreateResponse};
 use axum::{
     body::Body,
     extract::{self, multipart::Field, Json, Path, State},
@@ -22,10 +23,13 @@ use database::{
     NewAddonMediaModel, NewAddonModel, NewMediaUploadModel, NewSchemaDataModel, NewSchemaModel,
     SchemaDataFieldUpdate, SchemaDataModel, SchemaDataTagModel, SchemaModel, WidgetModel,
 };
-use eyre::ContextCompat;
+use eyre::{Context, ContextCompat};
 use futures::TryStreamExt;
 use global_common::{
-    request::CmsQuery,
+    request::{
+        CmsCreate, CmsCreateDataColumn, CmsCreateDataColumnTag, CmsQuery, CmsUpdate,
+        CmsUpdateDataCell,
+    },
     response::{BasicCmsInfo, CmsResponse, CmsRowResponse, PublicSchema, SchemaTag},
     schema::{SchematicFieldKey, SchematicFieldType},
     uuid::CollectionName,
@@ -40,13 +44,13 @@ use local_common::{
         get_full_file_path, get_next_uploading_file_path, get_thumb_file_path,
         read_and_upload_data, register_b2, StorageService,
     },
-    DashboardPageInfo, MemberId, MemberModel, WebsiteId, WebsiteModel, WidgetId,
+    AddonId, DashboardPageInfo, MemberId, MemberModel, WebsiteId, WebsiteModel, WidgetId,
 };
 use mime_guess::mime::APPLICATION_JSON;
 use serde::Deserialize;
 use serde_qs::axum::QsQuery;
 use sha2::{Digest, Sha256};
-use sqlx::{Connection, Pool, Sqlite, SqlitePool};
+use sqlx::{Connection, Pool, Sqlite, SqliteConnection, SqlitePool};
 use storage::DisplayStore;
 use tokio::{fs::OpenOptions, io::AsyncWriteExt, net::TcpListener};
 use tower_http::trace::TraceLayer;
@@ -256,8 +260,8 @@ async fn get_active_addon_list(
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AddonInstall {
-    website_id: uuid::Uuid,
-    member_id: uuid::Uuid,
+    website_id: WebsiteUuid,
+    member_id: MemberUuid,
 
     // TODO: Both of these are said Models'
     member: MemberModel,
@@ -291,7 +295,7 @@ async fn post_addon_install_user(
         let mut inst = NewAddonInstanceModel {
             addon_id: addon.id,
             website_id: value.website.id,
-            website_uuid: value.website_id,
+            website_uuid: *value.website_id,
         }
         .insert(&mut *acq)
         .await?;
@@ -299,16 +303,31 @@ async fn post_addon_install_user(
         // 2. Send install request
         let resp = CLIENT
             .post(format!("{url}/registration"))
-            .json(&serde_json::json!({
-                "instanceId": inst.public_id,
+            .json(&RegisterNewJson {
+                instance_id: inst.public_id,
 
-                "ownerId": value.member_id,
-                "websiteId": value.website_id,
+                owner_id: value.member_id,
+                website_id: value.website_id,
 
                 // TODO: Use Permissions
-                "member": value.member,
-                "website": value.website,
-            }))
+                member: MemberPartial {
+                    uuid: value.member.uuid.into(),
+                    role: value.member.role,
+                    display_name: value.member.display_name,
+                    tag: Some(value.member.tag),
+                    email: Some(value.member.email),
+                    created_at: value.member.created_at,
+                    updated_at: value.member.updated_at,
+                },
+                website: WebsitePartial {
+                    public_id: value.website.public_id,
+                    name: value.website.name,
+                    url: value.website.url,
+                    theme_id: value.website.theme_id,
+                    created_at: value.website.created_at,
+                    updated_at: value.website.updated_at,
+                },
+            })
             .send()
             .await?;
 
@@ -336,6 +355,9 @@ async fn post_addon_install_user(
 
             Ok(Json(WrappingResponse::okay(Cow::Borrowed("ok"))))
         } else {
+            // TODO: Remove once registration is fully working
+            inst.delete(&mut *acq).await?;
+
             Ok(Json(resp.json().await?))
         }
     } else {
@@ -934,19 +956,18 @@ async fn duplicate_website_addons(
     Ok(Json(WrappingResponse::okay("ok")))
 }
 
-#[derive(serde::Deserialize)]
-pub struct CreateData {
-    id: String,
-    name: String,
-    // TODO: Template
-}
-
 pub async fn new_cms_collection(
     Path(addon_id): Path<Uuid>,
     State(db): State<SqlitePool>,
 
-    Json(CreateData { id, name }): Json<CreateData>,
-) -> Result<JsonResponse<serde_json::Value>> {
+    Json(CmsCreate {
+        id: coll,
+        name,
+        update,
+        columns,
+        data,
+    }): Json<CmsCreate>,
+) -> Result<JsonResponse<CmsCreateResponse>> {
     let mut acq = db.acquire().await?;
 
     let addon = AddonModel::find_one_by_guid(addon_id, &mut *acq)
@@ -961,23 +982,25 @@ pub async fn new_cms_collection(
     // .replace(/\s+/g, "")
     // .slice(0, 32);
 
-    if id.trim().len() < 2
+    // TODO: What about Namespace?
+
+    if coll.id.trim().len() < 2
         || name.trim().len() < 2
-        || id.contains('-')
-        || id.contains('/')
+        || coll.id.contains('-')
+        || coll.id.contains('/')
         || name.contains('/')
     {
         return Err(eyre::eyre!("Invalid Characters present"))?;
     }
 
-    if SchemaModel::find_one_by_public_id(addon.id, &id, &mut *acq)
+    if SchemaModel::find_one_by_public_id(addon.id, &coll.id, &mut *acq)
         .await?
         .is_some()
     {
         return Err(eyre::eyre!("Schema ID already Exists"))?;
     }
 
-    let schema = acq
+    let (schema, data_ids) = acq
         .transaction(|trx| {
             Box::pin(async move {
                 let fields = HashMap::from_iter([
@@ -1031,33 +1054,48 @@ pub async fn new_cms_collection(
                     ),
                 ]);
 
-                Result::<_, crate::Error>::Ok(
-                    NewSchemaModel {
-                        addon_id: addon.id,
-                        primary_field: String::from(SchematicFieldKey::CreatedAt.as_str()),
-                        display_name: name.trim().to_string(),
-                        permissions: Default::default(),
-                        version: 1.0,
-                        allowed_operations: Vec::new(),
-                        ttl: None,
-                        default_sort: None,
-                        name: id,
-                        store: String::from("cms"),
-                        fields,
-                        views: vec![Default::default()],
+                let mut schema = NewSchemaModel {
+                    addon_id: addon.id,
+                    primary_field: String::from(SchematicFieldKey::CreatedAt.as_str()),
+                    display_name: name.trim().to_string(),
+                    permissions: Default::default(),
+                    version: 1.0,
+                    allowed_operations: Vec::new(),
+                    ttl: None,
+                    default_sort: None,
+                    name: coll.id,
+                    store: String::from("cms"),
+                    fields,
+                    views: update.views.unwrap_or_else(|| vec![Default::default()]),
+                }
+                .insert(trx)
+                .await?;
+
+                if let Some(columns) = columns {
+                    for column in columns {
+                        insert_columns(column, &mut schema)?;
                     }
-                    .insert(trx)
-                    .await?,
-                )
+
+                    schema.update(trx).await?;
+                }
+
+                let data_ids = if let Some(data) = data {
+                    Some(insert_rows(data, addon.id, &schema, trx).await?)
+                } else {
+                    None
+                };
+
+                Result::<_, crate::Error>::Ok((schema, data_ids))
             })
         })
         .await?;
 
-    Ok(Json(WrappingResponse::okay(serde_json::json!({
-        "id": schema.id,
-        "name": schema.display_name,
-        "namespace": addon.tag_line
-    }))))
+    Ok(Json(WrappingResponse::okay(CmsCreateResponse {
+        id: schema.name,
+        name: schema.display_name,
+        namespace: Some(addon.tag_line),
+        data_ids,
+    })))
 }
 
 pub async fn get_cms_info(
@@ -1107,16 +1145,11 @@ pub async fn get_cms_info(
     })))
 }
 
-#[derive(serde::Deserialize)]
-pub struct UpdateCms {
-    views: Option<Vec<SchemaView>>,
-}
-
 pub async fn update_cms(
     Path((addon_id, coll)): Path<(Uuid, CollectionName)>,
     State(db): State<SqlitePool>,
 
-    Json(UpdateCms { views }): Json<UpdateCms>,
+    Json(CmsUpdate { views }): Json<CmsUpdate>,
 ) -> Result<JsonResponse<&'static str>> {
     let mut acq = db.acquire().await?;
 
@@ -1338,25 +1371,12 @@ pub async fn get_cms_query(
 
 // Column
 
-#[derive(serde::Deserialize)]
-pub struct CreateDataColumn {
-    id: String,
-    name: String,
-    type_of: SchematicFieldType,
-    referenced_schema: Option<String>,
-}
-
 pub async fn create_new_data_column(
     Path((addon_id, coll)): Path<(Uuid, CollectionName)>,
     State(db): State<SqlitePool>,
 
-    Json(CreateDataColumn {
-        id,
-        name,
-        type_of,
-        referenced_schema,
-    }): Json<CreateDataColumn>,
-) -> Result<JsonResponse<serde_json::Value>> {
+    Json(create_data): Json<CmsCreateDataColumn>,
+) -> Result<JsonResponse<SchematicField>> {
     let mut acq = db.acquire().await?;
 
     let addon = AddonModel::find_one_by_guid(addon_id, &mut *acq)
@@ -1376,6 +1396,22 @@ pub async fn create_new_data_column(
     // .replace(/\s+/g, "")
     // .slice(0, 32);
 
+    let field = insert_columns(create_data, &mut schema)?;
+
+    schema.update(&mut *acq).await?;
+
+    Ok(Json(WrappingResponse::okay(field)))
+}
+
+fn insert_columns(
+    CmsCreateDataColumn {
+        id,
+        name,
+        type_of,
+        referenced_schema,
+    }: CmsCreateDataColumn,
+    schema: &mut SchemaModel,
+) -> Result<SchematicField> {
     let key = SchematicFieldKey::Other(id.trim().to_string());
 
     if schema.fields.iter().filter(|(_, v)| !v.is_deleted).count() >= 20 {
@@ -1417,24 +1453,14 @@ pub async fn create_new_data_column(
 
     schema.fields.insert(key, field.clone());
 
-    schema.update(&mut *acq).await?;
-
-    Ok(Json(WrappingResponse::okay(serde_json::json!({
-        id: field
-    }))))
-}
-
-// TODO: Improve
-#[derive(serde::Serialize, serde::Deserialize)]
-pub struct UpdateDataColumn {
-    tag: String,
+    Ok(field)
 }
 
 pub async fn add_data_column_tag(
     Path((addon_id, coll, column_id)): Path<(Uuid, CollectionName, String)>,
     State(db): State<SqlitePool>,
 
-    Json(UpdateDataColumn { tag }): Json<UpdateDataColumn>,
+    Json(CmsCreateDataColumnTag { tag }): Json<CmsCreateDataColumnTag>,
 ) -> Result<JsonResponse<api::SchemaTag>> {
     let mut acq = db.acquire().await?;
 
@@ -1589,17 +1615,11 @@ pub async fn get_cms_row(
     })))
 }
 
-#[derive(serde::Deserialize)]
-pub struct UpdateCmsDataCell {
-    pub field_name: String,
-    pub value: Option<api::SimpleValue>,
-}
-
 pub async fn update_cms_row_cell(
     Path((addon_id, coll, row_id)): Path<(Uuid, CollectionName, Uuid)>,
     State(db): State<SqlitePool>,
 
-    Json(UpdateCmsDataCell { field_name, value }): Json<UpdateCmsDataCell>,
+    Json(CmsUpdateDataCell { field_name, value }): Json<CmsUpdateDataCell>,
 ) -> Result<JsonResponse<&'static str>> {
     let mut acq = db.acquire().await?;
 
@@ -1680,79 +1700,9 @@ pub async fn import_data_rows(
         .await?
         .context("Schema not found")?;
 
-    let mut inserting_rows = map
-        .values()
-        .next()
-        .unwrap()
-        .iter()
-        .map(|_| NewSchemaDataModel::new(addon.id, schema.id))
-        .collect::<Vec<_>>();
-
     acq.transaction(|trx| {
         Box::pin(async move {
-            for (key, mut value) in map {
-                let key = SchematicFieldKey::Other(key);
-
-                if let Some(field) = schema.fields.get(&key) {
-                    // TODO: Incorporate into insert_field/parse_value
-                    if field.field_type == SchematicFieldType::Tags {
-                        let mut adding_tags: HashMap<String, i64> = HashMap::new();
-
-                        for val in value.iter_mut() {
-                            if let SimpleValue::Text(text_list) = val.clone() {
-                                // Nothing in Text?
-                                if text_list.trim().is_empty() {
-                                    *val = SimpleValue::ListNumber(Vec::new());
-                                    continue;
-                                }
-
-                                let mut items = Vec::new();
-
-                                for text in text_list.split(",") {
-                                    let trimmed = text.trim();
-
-                                    // We don't want to call the DB for no reason
-                                    if let Some(found) =
-                                        adding_tags.get(&trimmed.to_lowercase()).copied()
-                                    {
-                                        items.push(found.into());
-                                    } else {
-                                        let model = SchemaDataTagModel::insert(
-                                            schema.id,
-                                            key.to_string(),
-                                            trimmed.to_string(),
-                                            String::from("#FAF"),
-                                            trx,
-                                        )
-                                        .await?;
-
-                                        adding_tags.insert(model.name.to_lowercase(), *model.id);
-
-                                        items.push((*model.id as i32).into());
-                                    }
-                                }
-
-                                *val = SimpleValue::ListNumber(items);
-                            } else {
-                                warn!("Import: Expected Text, Found {val:?}");
-                            }
-                        }
-                    }
-
-                    for (i, value) in value.into_iter().enumerate() {
-                        inserting_rows[i].insert_field(
-                            key.to_string(),
-                            false,
-                            field.field_type,
-                            field.field_type.parse_value(value)?,
-                        )?;
-                    }
-                }
-            }
-
-            for row in inserting_rows {
-                row.insert(trx).await?;
-            }
+            insert_rows(map, addon.id, &schema, trx).await?;
 
             Result::<_, crate::Error>::Ok(())
         })
@@ -1760,6 +1710,90 @@ pub async fn import_data_rows(
     .await?;
 
     Ok(Json(WrappingResponse::okay("ok")))
+}
+
+async fn insert_rows(
+    data: HashMap<String, Vec<SimpleValue>>,
+    addon_id: AddonId,
+    schema: &SchemaModel,
+    db: &mut SqliteConnection,
+) -> Result<Vec<Uuid>> {
+    let mut inserting_rows = data
+        .values()
+        .next()
+        .unwrap()
+        .iter()
+        .map(|_| NewSchemaDataModel::new(addon_id, schema.id))
+        .collect::<Vec<_>>();
+
+    for (key, mut value) in data {
+        let key = SchematicFieldKey::Other(key);
+
+        if let Some(field) = schema.fields.get(&key) {
+            // TODO: Incorporate into insert_field/parse_value
+            if field.field_type == SchematicFieldType::Tags {
+                let mut adding_tags: HashMap<String, i64> = HashMap::new();
+
+                for val in value.iter_mut() {
+                    if let SimpleValue::Text(text_list) = val.clone() {
+                        // Nothing in Text?
+                        if text_list.trim().is_empty() {
+                            *val = SimpleValue::ListNumber(Vec::new());
+                            continue;
+                        }
+
+                        let mut items = Vec::new();
+
+                        for text in text_list.split(",") {
+                            let trimmed = text.trim();
+
+                            // We don't want to call the DB for no reason
+                            if let Some(found) = adding_tags.get(&trimmed.to_lowercase()).copied() {
+                                items.push(found.into());
+                            } else {
+                                let model = SchemaDataTagModel::insert(
+                                    schema.id,
+                                    key.to_string(),
+                                    trimmed.to_string(),
+                                    String::from("#FAF"),
+                                    db,
+                                )
+                                .await?;
+
+                                adding_tags.insert(model.name.to_lowercase(), *model.id);
+
+                                items.push((*model.id as i32).into());
+                            }
+                        }
+
+                        *val = SimpleValue::ListNumber(items);
+                    } else {
+                        warn!("Import: Expected Text, Found {val:?}");
+                    }
+                }
+            }
+
+            for (i, value) in value.into_iter().enumerate() {
+                inserting_rows[i].insert_field(
+                    key.to_string(),
+                    false,
+                    field.field_type,
+                    field.field_type.parse_value(value).wrap_err_with(|| {
+                        format!("Parse Value into Type: {:?}", field.field_type)
+                    })?,
+                )?;
+            }
+        }
+    }
+
+    let mut inserted = Vec::new();
+
+    for row in inserting_rows {
+        let model = row.insert(db).await?;
+        inserted.push(model.public_id);
+    }
+
+    Ok(inserted)
 }
 
 pub async fn duplicate_cms_row_cell(
