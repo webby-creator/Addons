@@ -44,7 +44,7 @@ use local_common::{
         get_full_file_path, get_next_uploading_file_path, get_thumb_file_path,
         read_and_upload_data, register_b2, StorageService,
     },
-    AddonId, DashboardPageInfo, MemberId, MemberModel, WebsiteId, WebsiteModel, WidgetId,
+    AddonId, DashboardPageInfo, MemberId, MemberModel, WebsiteModel, WidgetId,
 };
 use mime_guess::mime::APPLICATION_JSON;
 use serde::Deserialize;
@@ -59,6 +59,7 @@ use uuid::Uuid;
 use crate::Result;
 
 mod dev;
+mod website;
 
 lazy_static! {
     static ref CLIENT: reqwest::Client = reqwest::Client::new();
@@ -125,10 +126,9 @@ pub async fn serve(pool: Pool<Sqlite>) -> Result<()> {
                 "/addon/:guid/schema/:name/row/:row_id/duplicate",
                 post(duplicate_cms_row_cell),
             )
-            .route("/site/:website/schemas", get(get_website_schemas))
-            .route("/site/:website/duplicate", post(duplicate_website_addons))
             //
             .nest("/dev", dev::routes())
+            .nest("/website", website::routes())
             .layer(TraceLayer::new_for_http())
             .layer(Extension(uploader.clone()))
             .with_state(pool),
@@ -854,106 +854,6 @@ async fn get_addon_schemas(
             })
             .collect(),
     ))))
-}
-
-async fn get_website_schemas(
-    Path(website): Path<Uuid>,
-    State(db): State<SqlitePool>,
-) -> Result<JsonListResponse<&'static str>> {
-    let mut acq = db.acquire().await?;
-
-    let found = AddonInstanceModel::find_by_website_uuid(website, &mut *acq).await?;
-
-    debug!("{website} {}", found.len());
-
-    Ok(Json(WrappingResponse::okay(ListResponse::empty())))
-}
-
-#[derive(Deserialize)]
-struct DuplicateWebsiteJson {
-    pub new_website_id: WebsiteId,
-    pub new_website_uuid: Uuid,
-
-    // TODO: Both of these are said Models'
-    member: MemberModel,
-    new_website: WebsiteModel,
-}
-
-async fn duplicate_website_addons(
-    Path(old_website): Path<Uuid>,
-    State(db): State<SqlitePool>,
-    Json(DuplicateWebsiteJson {
-        new_website_id,
-        new_website_uuid,
-        member,
-        new_website,
-    }): Json<DuplicateWebsiteJson>,
-) -> Result<JsonResponse<&'static str>> {
-    let mut acq = db.acquire().await?;
-
-    let instances = AddonInstanceModel::find_by_website_uuid(old_website, &mut *acq).await?;
-
-    for inst in instances {
-        // TODO: Duplicate of install above
-
-        let addon = AddonModel::find_one_by_id(inst.addon_id, &mut *acq)
-            .await?
-            .context("Addon not found")?;
-
-        if let Some(url) = addon.action_url {
-            // 1. Insert Website Addon
-            let mut inst = NewAddonInstanceModel {
-                addon_id: inst.addon_id,
-                website_id: new_website_id,
-                website_uuid: new_website_uuid,
-            }
-            .insert(&mut *acq)
-            .await?;
-
-            // 2. Send install request
-            let resp = CLIENT
-                .post(format!("{url}/registration"))
-                .json(&serde_json::json!({
-                    "instanceId": inst.public_id,
-
-                    "ownerId": member.uuid,
-                    "websiteId": new_website_uuid,
-
-                    // TODO: Use Permissions
-                    "member": member,
-                    "website": new_website,
-                }))
-                .send()
-                .await?;
-
-            // TODO: Create Addon Template Pages & Widget info in main program
-
-            if resp.status().is_success() {
-                // 3. Get Response - Can have multiple resolutions.
-                //  - Could want to redirect the user to finish on another site.
-                //  - Could be finished now
-                //  - Could be step 1 and require multiple setup requests & permission steps.
-                let resp: WrappingResponse<InstallResponse> = resp.json().await?;
-
-                match resp {
-                    WrappingResponse::Resp(InstallResponse::Complete) => {
-                        inst.is_setup = true;
-                        inst.update(&mut *acq).await?;
-                    }
-
-                    WrappingResponse::Resp(InstallResponse::Redirect(_url)) => {
-                        // TODO
-                    }
-
-                    WrappingResponse::Error(e) => return Ok(Json(WrappingResponse::Error(e))),
-                }
-            } else {
-                return Err(eyre::eyre!("{}", resp.text().await?))?;
-            }
-        }
-    }
-
-    Ok(Json(WrappingResponse::okay("ok")))
 }
 
 pub async fn new_cms_collection(
