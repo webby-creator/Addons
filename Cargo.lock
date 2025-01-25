@@ -602,6 +602,7 @@ version = "0.1.0"
 dependencies = [
  "bitflags 2.6.0",
  "eyre",
+ "global-common",
  "lazy_static",
  "log",
  "num_enum",
