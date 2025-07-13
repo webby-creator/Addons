@@ -10,7 +10,7 @@ storage = { path = "../../../website/crates/storage" }
 common = { path = "../../../website/crates/common" }
 api = { path = "../../../website/crates/api" }
 
-global-common = { path = "../../../global-common", features = ["sqlx"] }
+global-common = { workspace = true, features = ["sqlx"] }
 local-common = { path = "../common" }
 
 serde = { workspace = true }
