@@ -26,9 +26,8 @@ pub struct DashboardPageInfo {
 
 #[derive(Serialize, Deserialize)]
 pub struct MemberModel {
-    pub id: MemberId,
-
-    pub uuid: Uuid,
+    pub pk: MemberId,
+    pub id: Uuid,
 
     pub role: i64,
 
@@ -36,6 +35,11 @@ pub struct MemberModel {
     pub display_name: String,
 
     pub email: String,
+    pub password: String,
+
+    pub first_name: String,
+    pub last_name: String,
+    pub stripe_customer_id: Option<String>,
 
     pub created_at: OffsetDateTime,
     pub updated_at: OffsetDateTime,
@@ -43,17 +47,21 @@ pub struct MemberModel {
 
 #[derive(Serialize, Deserialize)]
 pub struct WebsiteModel {
-    pub id: WebsiteId,
+    pub pk: WebsiteId,
+    pub id: Uuid,
 
     pub owner_id: MemberId,
-
-    pub public_id: String,
 
     pub name: String,
     /// If URL starts with '/' it is relative to the domain
     pub url: Option<String>,
     pub theme_id: i32,
+    // pub theme_override: Option<Json<ThemeComponents>>,
+    // pub anchors: Option<Json<AnchorMap>>,
+    // pub settings: Json<WebsiteSettings>,
 
+    // pub home_page: WebsitePageId,
+    // pub published_id: Option<PublishId>,
     pub created_at: OffsetDateTime,
     pub updated_at: OffsetDateTime,
 }

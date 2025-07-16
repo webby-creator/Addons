@@ -1,6 +1,6 @@
 /// Instances of addons used on websites
 use local_common::{AddonId, AddonInstanceId, WebsiteId};
-use sqlx::{FromRow, Result, SqliteConnection};
+use sqlx::{types::Json, FromRow, Result, SqliteConnection};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -9,6 +9,8 @@ pub struct NewAddonInstanceModel {
 
     pub website_id: WebsiteId,
     pub website_uuid: Uuid,
+
+    pub version: String,
 }
 
 #[derive(Debug, FromRow)]
@@ -22,6 +24,8 @@ pub struct AddonInstanceModel {
     pub website_uuid: Uuid,
 
     pub is_setup: bool,
+    pub settings: Option<Json<serde_json::Value>>,
+    pub version: String,
 
     // TODO: Should I store some sort of settings here? Not related to addon, but the instance itself.
     pub delete_reason: Option<String>,
@@ -37,12 +41,13 @@ impl NewAddonInstanceModel {
         let now = OffsetDateTime::now_utc();
 
         let resp = sqlx::query(
-            "INSERT INTO addon_instance (public_id, addon_id, website_id, website_uuid, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $5)",
+            "INSERT INTO addon_instance (public_id, addon_id, website_id, website_uuid, version, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $6)",
         )
             .bind(public_id)
             .bind(self.addon_id)
             .bind(self.website_id)
             .bind(self.website_uuid)
+            .bind(&self.version)
             .bind(now)
             .execute(db)
             .await?;
@@ -54,6 +59,8 @@ impl NewAddonInstanceModel {
             website_id: self.website_id,
             website_uuid: self.website_uuid,
             is_setup: false,
+            settings: None,
+            version: self.version,
             delete_reason: None,
             created_at: now,
             updated_at: now,
@@ -67,9 +74,11 @@ impl AddonInstanceModel {
         self.updated_at = OffsetDateTime::now_utc();
 
         let res =
-            sqlx::query("UPDATE addon_instance SET is_setup = $2, updated_at = $3 WHERE id = $1")
+            sqlx::query("UPDATE addon_instance SET is_setup = $2, version = $3, settings = $4, updated_at = $5 WHERE id = $1")
                 .bind(self.id)
                 .bind(self.is_setup)
+                .bind(&self.version)
+                .bind(&self.settings)
                 .bind(self.updated_at)
                 .execute(db)
                 .await?;
@@ -85,7 +94,7 @@ impl AddonInstanceModel {
 
     pub async fn find_by_uuid(uuid: Uuid, db: &mut SqliteConnection) -> Result<Option<Self>> {
         Ok(sqlx::query_as(
-            "SELECT id, public_id, addon_id, website_id, website_uuid, is_setup, delete_reason, created_at, updated_at, deleted_at FROM addon_instance WHERE public_id = $1",
+            "SELECT id, public_id, addon_id, website_id, website_uuid, is_setup, settings, version, delete_reason, created_at, updated_at, deleted_at FROM addon_instance WHERE public_id = $1",
         )
         .bind(uuid)
         .fetch_optional(db)
@@ -98,7 +107,7 @@ impl AddonInstanceModel {
         db: &mut SqliteConnection,
     ) -> Result<Option<Self>> {
         Ok(sqlx::query_as(
-            "SELECT id, public_id, addon_id, website_id, website_uuid, is_setup, delete_reason, created_at, updated_at, deleted_at FROM addon_instance WHERE addon_id = $1 AND website_uuid = $2",
+            "SELECT id, public_id, addon_id, website_id, website_uuid, is_setup, settings, version, delete_reason, created_at, updated_at, deleted_at FROM addon_instance WHERE addon_id = $1 AND website_uuid = $2",
         )
         .bind(addon_id)
         .bind(website_id)
@@ -108,7 +117,7 @@ impl AddonInstanceModel {
 
     pub async fn find_by_website_uuid(uuid: Uuid, db: &mut SqliteConnection) -> Result<Vec<Self>> {
         Ok(sqlx::query_as(
-            "SELECT id, public_id, addon_id, website_id, website_uuid, is_setup, delete_reason, created_at, updated_at, deleted_at FROM addon_instance WHERE website_uuid = $1",
+            "SELECT id, public_id, addon_id, website_id, website_uuid, is_setup, settings, version, delete_reason, created_at, updated_at, deleted_at FROM addon_instance WHERE website_uuid = $1",
         )
         .bind(uuid)
         .fetch_all(db)

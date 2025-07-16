@@ -84,9 +84,13 @@ pub async fn serve(pool: Pool<Sqlite>) -> Result<()> {
             .route("/list-active/:website", get(get_active_addon_list))
             .route("/dashboard-pages/:website", get(get_dashboard_pages))
             .route("/list", get(get_addon_list))
+            // Update Addon Instance
+            .route("/instance/:guid", post(post_addon_instance))
             .route("/addon", post(new_addon))
             .route("/addon/:guid", get(get_addon_public))
+            // Get Website Addon Instance info
             .route("/addon/:guid/instance/:website", get(get_addon_instance))
+            // Get dashboard page
             .route("/addon/:guid/dashboard/*O", get(get_addon_dashboard_page))
             .route("/addon/:guid/install", post(post_addon_install_user))
             .route("/addon/:guid/icon", post(upload_icon))
@@ -234,10 +238,18 @@ async fn get_dashboard_pages(
     Ok(Json(WrappingResponse::okay(ListResponse::all(items))))
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ActiveAddonsResponse {
+    instance_guid: Uuid,
+    instance_version: String,
+    addon: AddonPublic,
+}
+
 async fn get_active_addon_list(
     Path(website): Path<Uuid>,
     State(db): State<SqlitePool>,
-) -> Result<JsonListResponse<AddonPublic>> {
+) -> Result<JsonListResponse<ActiveAddonsResponse>> {
     let active =
         AddonInstanceModel::find_by_website_uuid(website, &mut *db.acquire().await?).await?;
 
@@ -248,7 +260,11 @@ async fn get_active_addon_list(
             .await?
             .unwrap();
 
-        items.push(addon.into_public(None, None, Vec::new()));
+        items.push(ActiveAddonsResponse {
+            instance_guid: instance.public_id,
+            instance_version: instance.version,
+            addon: addon.into_public(None, None, Vec::new()),
+        });
     }
 
     Ok(Json(WrappingResponse::okay(ListResponse::all(items))))
@@ -261,6 +277,8 @@ async fn get_active_addon_list(
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AddonInstall {
+    version: String,
+
     website_id: WebsiteUuid,
     member_id: MemberUuid,
 
@@ -287,20 +305,21 @@ async fn post_addon_install_user(
     // TODO: Check if website already has addon installed
     // TODO: Ensure member_id is owner of website or has admin
 
+    // TODO: Utilize perms
+    let _perms =
+        AddonPermissionModel::find_by_scope_addon_id(addon.id, "member", &mut *acq).await?;
+
+    // 1. Insert Website Addon
+    let mut inst = NewAddonInstanceModel {
+        addon_id: addon.id,
+        website_id: value.website.pk,
+        website_uuid: *value.website_id,
+        version: value.version,
+    }
+    .insert(&mut *acq)
+    .await?;
+
     if let Some(url) = addon.action_url {
-        // TODO: Utilize perms
-        let _perms =
-            AddonPermissionModel::find_by_scope_addon_id(addon.id, "member", &mut *acq).await?;
-
-        // 1. Insert Website Addon
-        let mut inst = NewAddonInstanceModel {
-            addon_id: addon.id,
-            website_id: value.website.id,
-            website_uuid: *value.website_id,
-        }
-        .insert(&mut *acq)
-        .await?;
-
         // 2. Send install request
         let resp = CLIENT
             .post(format!("{url}/registration"))
@@ -312,7 +331,7 @@ async fn post_addon_install_user(
 
                 // TODO: Use Permissions
                 member: MemberPartial {
-                    uuid: value.member.uuid.into(),
+                    uuid: value.member.id.into(),
                     role: value.member.role,
                     display_name: value.member.display_name,
                     tag: Some(value.member.tag),
@@ -321,7 +340,7 @@ async fn post_addon_install_user(
                     updated_at: value.member.updated_at,
                 },
                 website: WebsitePartial {
-                    public_id: value.website.public_id,
+                    public_id: value.website.id.into(),
                     name: value.website.name,
                     url: value.website.url,
                     theme_id: value.website.theme_id,
@@ -362,7 +381,10 @@ async fn post_addon_install_user(
             Ok(Json(resp.json().await?))
         }
     } else {
-        Ok(Json(WrappingResponse::error("Addon is missing Action URL")))
+        inst.is_setup = true;
+        inst.update(&mut *acq).await?;
+
+        Ok(Json(WrappingResponse::okay(Cow::Borrowed("ok"))))
     }
 }
 
@@ -434,6 +456,36 @@ async fn get_addon_instance(
         "uuid": inst.public_id,
         "isSetup": inst.is_setup,
     }))))
+}
+
+#[derive(Deserialize)]
+pub struct UpdateAddonInstance {
+    pub version: Option<String>,
+    pub settings: Option<serde_json::Value>,
+}
+
+async fn post_addon_instance(
+    Path(instance_id): Path<Uuid>,
+    State(db): State<SqlitePool>,
+    Json(json): Json<UpdateAddonInstance>,
+) -> Result<JsonResponse<&'static str>> {
+    let mut acq = db.acquire().await?;
+
+    let mut inst = AddonInstanceModel::find_by_uuid(instance_id, &mut *acq)
+        .await?
+        .context("Addon Instance not found")?;
+
+    if let Some(version) = json.version {
+        inst.version = version;
+    }
+
+    if let Some(settings) = json.settings {
+        inst.settings = Some(sqlx::types::Json(settings));
+    }
+
+    inst.update(&mut *acq).await?;
+
+    Ok(Json(WrappingResponse::okay("ok")))
 }
 
 async fn get_addon_public(
@@ -852,6 +904,7 @@ async fn get_addon_schemas(
                 id: schema.name,
                 name: schema.display_name,
                 namespace: Some(format!("@{}", addon.name_id)),
+                is_single: false,
             })
             .collect(),
     ))))
@@ -864,6 +917,8 @@ pub async fn new_cms_collection(
     Json(CmsCreate {
         id: coll,
         name,
+        // TODO
+        is_single,
         update,
         columns,
         data,
@@ -1024,8 +1079,9 @@ pub async fn get_cms_info(
             primary_field: schema.primary_field,
             display_name: schema.display_name,
             permissions: schema.permissions.0,
-            version: schema.version,
+            version: schema.version as f32,
             allowed_operations: schema.allowed_operations.0,
+            is_single: false,
             fields: schema.fields.0,
             ttl: schema.ttl,
             default_sort: schema.default_sort,

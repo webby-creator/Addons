@@ -62,6 +62,8 @@ async fn duplicate_website_addons(
                 addon_id: inst.addon_id,
                 website_id: new_website_id,
                 website_uuid: new_website_uuid,
+                // TODO: Set to version we're duplicating
+                version: String::from("latest"),
             }
             .insert(&mut *acq)
             .await?;
@@ -72,7 +74,7 @@ async fn duplicate_website_addons(
                 .json(&serde_json::json!({
                     "instanceId": inst.public_id,
 
-                    "ownerId": member.uuid,
+                    "ownerId": member.id,
                     "websiteId": new_website_uuid,
 
                     // TODO: Use Permissions
@@ -121,12 +123,17 @@ async fn get_editor_widget_list(
     let mut items = Vec::new();
 
     for instance in AddonInstanceModel::find_by_website_uuid(*website_uuid, &mut *acq).await? {
+        let addon = AddonModel::find_one_by_id(instance.addon_id, &mut *acq)
+            .await?
+            .context("Addon not found")?;
+
         let widget_refs = WidgetModel::find_by_addon_id(instance.addon_id, &mut *acq).await?;
 
         items.push(serde_json::json!({
-            "addonId": instance.public_id,
+            "instance": instance.public_id,
+            "guid": addon.guid,
+            "name": addon.name,
             "widgets": widget_refs.into_iter().map(|w| w.public_id).collect::<Vec<_>>(),
-            // "pages"
         }));
     }
 
