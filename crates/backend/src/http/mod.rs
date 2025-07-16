@@ -86,6 +86,7 @@ pub async fn serve(pool: Pool<Sqlite>) -> Result<()> {
             .route("/list", get(get_addon_list))
             // Update Addon Instance
             .route("/instance/:guid", post(post_addon_instance))
+            // Addon
             .route("/addon", post(new_addon))
             .route("/addon/:guid", get(get_addon_public))
             // Get Website Addon Instance info
@@ -189,13 +190,27 @@ async fn handle_api(
 
     let content_type = resp.headers().get(CONTENT_TYPE).cloned();
 
-    Ok((
-        [(
-            CONTENT_TYPE,
-            content_type.unwrap_or_else(|| HeaderValue::from_static(APPLICATION_JSON.as_ref())),
-        )],
-        Body::from_stream(resp.bytes_stream()),
-    ))
+    // TODO: Ensure response is WrappingResponse at all times
+
+    if resp.status().is_success() {
+        Ok(Response::builder()
+            .status(resp.status())
+            .header(
+                CONTENT_TYPE,
+                content_type.unwrap_or_else(|| HeaderValue::from_static(APPLICATION_JSON.as_ref())),
+            )
+            .body(Body::from_stream(resp.bytes_stream()))
+            .unwrap())
+    } else {
+        let status = resp.status();
+
+        let text = resp.text().await?;
+
+        Ok(Response::builder()
+            .status(status)
+            .body(Body::from(format!("Addon Specific Error Occurred: {text}")))
+            .unwrap())
+    }
 }
 
 async fn get_dashboard_pages(
