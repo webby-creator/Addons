@@ -1,3 +1,4 @@
+use global_common::id::AddonInstanceUuid;
 /// Instances of addons used on websites
 use local_common::{AddonId, AddonInstanceId, WebsiteId};
 use sqlx::{types::Json, FromRow, Result, SqliteConnection};
@@ -16,7 +17,7 @@ pub struct NewAddonInstanceModel {
 #[derive(Debug, FromRow)]
 pub struct AddonInstanceModel {
     pub id: AddonInstanceId,
-    pub public_id: Uuid,
+    pub public_id: AddonInstanceUuid,
 
     pub addon_id: AddonId,
 
@@ -37,7 +38,7 @@ pub struct AddonInstanceModel {
 
 impl NewAddonInstanceModel {
     pub async fn insert(self, db: &mut SqliteConnection) -> Result<AddonInstanceModel> {
-        let public_id = Uuid::now_v7();
+        let public_id = AddonInstanceUuid::new();
         let now = OffsetDateTime::now_utc();
 
         let resp = sqlx::query(

@@ -1,5 +1,4 @@
 use std::{
-    borrow::Cow,
     collections::{HashMap, HashSet},
     net::SocketAddr,
 };
@@ -26,12 +25,14 @@ use database::{
 use eyre::{Context, ContextCompat};
 use futures::TryStreamExt;
 use global_common::{
-    id::SchemaDataPublicId,
+    id::{AddonInstanceUuid, SchemaDataPublicId},
     request::{
         CmsCreate, CmsCreateDataColumn, CmsCreateDataColumnTag, CmsQuery, CmsUpdate,
         CmsUpdateDataCell,
     },
-    response::{BasicCmsInfo, CmsResponse, CmsRowResponse, PublicSchema, SchemaTag},
+    response::{
+        AddonInstallResponse, BasicCmsInfo, CmsResponse, CmsRowResponse, PublicSchema, SchemaTag,
+    },
     schema::{SchematicFieldKey, SchematicFieldType},
     uuid::CollectionName,
     value::SimpleValue,
@@ -96,6 +97,7 @@ pub async fn serve(pool: Pool<Sqlite>) -> Result<()> {
             .route("/addon/:guid/install", post(post_addon_install_user))
             .route("/addon/:guid/icon", post(upload_icon))
             .route("/addon/:guid/gallery", post(upload_gallery_item))
+            .route("/addon/:guid/template/data", get(get_all_template_data))
             .route(
                 "/addon/:guid/template/:template",
                 get(get_template_page_data).post(update_template_page_data),
@@ -256,7 +258,7 @@ async fn get_dashboard_pages(
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ActiveAddonsResponse {
-    instance_guid: Uuid,
+    instance_guid: AddonInstanceUuid,
     instance_version: String,
     addon: AddonPublic,
 }
@@ -306,7 +308,7 @@ async fn post_addon_install_user(
     Path(guid): Path<Uuid>,
     State(db): State<SqlitePool>,
     Json(value): Json<AddonInstall>,
-) -> Result<JsonResponse<Cow<'static, str>>> {
+) -> Result<JsonResponse<AddonInstallResponse>> {
     let mut acq = db.acquire().await?;
 
     // let from_server = headers.get("x-server-ip").expect("Expected Server Origin IP")
@@ -340,6 +342,7 @@ async fn post_addon_install_user(
             .post(format!("{url}/registration"))
             .json(&RegisterNewJson {
                 instance_id: inst.public_id,
+                version: inst.version.clone(),
 
                 owner_id: value.member_id,
                 website_id: value.website_id,
@@ -367,6 +370,7 @@ async fn post_addon_install_user(
             .await?;
 
         // TODO: Create Addon Template Pages & Widget info in main program
+        // TODO: Its' possible for the registration to succeed but WrappingResponse wil be an Error
 
         if resp.status().is_success() {
             // 3. Get Response - Can have multiple resolutions.
@@ -388,18 +392,23 @@ async fn post_addon_install_user(
                 WrappingResponse::Error(e) => return Ok(Json(WrappingResponse::Error(e))),
             }
 
-            Ok(Json(WrappingResponse::okay(Cow::Borrowed("ok"))))
+            Ok(Json(WrappingResponse::okay(AddonInstallResponse {
+                instance_uuid: inst.public_id,
+            })))
         } else {
             // TODO: Remove once registration is fully working
             inst.delete(&mut *acq).await?;
 
-            Ok(Json(resp.json().await?))
+            Ok(Json(WrappingResponse::error(resp.text().await?)))
         }
     } else {
         inst.is_setup = true;
         inst.update(&mut *acq).await?;
 
-        Ok(Json(WrappingResponse::okay(Cow::Borrowed("ok"))))
+        Ok(Json(WrappingResponse::okay(AddonInstallResponse {
+            instance_uuid: inst.public_id,
+            // TODO: Maybe return version?
+        })))
     }
 }
 
@@ -896,6 +905,56 @@ async fn update_template_page_data(
         .await?;
 
     Ok(Json(WrappingResponse::okay("ok")))
+}
+
+// ADDON
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AddonPageWithDataItem {
+    pub public_id: Uuid,
+
+    pub path: String,
+    pub display_name: String,
+
+    pub settings: api::WebsitePageSettings,
+
+    pub content: DisplayStore,
+    pub version: i32,
+}
+
+async fn get_all_template_data(
+    Path(addon_id): Path<Uuid>,
+    State(db): State<SqlitePool>,
+) -> Result<JsonListResponse<AddonPageWithDataItem>> {
+    let mut acq = db.acquire().await?;
+
+    let Some(addon) = AddonModel::find_one_by_guid(addon_id, &mut *acq).await? else {
+        return Err(eyre::eyre!("Addon not found"))?;
+    };
+
+    let list = AddonTemplatePageModel::find_by_addon_id(addon.id, &mut *acq).await?;
+
+    let mut items = Vec::new();
+
+    for model in list {
+        let Some(content) =
+            AddonTemplatePageContentModel::find_one_by_page_id(model.id, &mut *acq).await?
+        else {
+            panic!("Unable to find Page Content");
+        };
+
+        items.push(AddonPageWithDataItem {
+            public_id: model.public_id,
+            path: model.path,
+            display_name: model.display_name,
+            settings: model.settings.0,
+            content: content.content.0,
+            version: content.version,
+        });
+    }
+
+    Ok(Json(WrappingResponse::okay(ListResponse::all(items))))
 }
 
 // TODO: From Main Program request addon schemas - remember if the schema is already in main program db then use main one.
