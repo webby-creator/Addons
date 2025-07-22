@@ -1,6 +1,6 @@
 use api::WebsitePageSettings;
-use common::ObjectId;
 use eyre::Result;
+use global_common::object_id::ObjectId;
 use local_common::{AddonId, AddonTemplatePageId};
 use serde::Serialize;
 use sqlx::{types::Json, FromRow, SqliteConnection};

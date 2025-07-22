@@ -7,7 +7,6 @@ edition = "2021"
 # TODO: Place into global-common as optional feature
 # TODO: Simplify
 storage = { path = "../../../website/crates/storage" }
-common = { path = "../../../website/crates/common" }
 api = { path = "../../../website/crates/api" }
 
 global-common = { workspace = true, features = ["sqlx"] }

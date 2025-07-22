@@ -926,7 +926,6 @@ name = "database"
 version = "0.1.0"
 dependencies = [
  "api",
- "common",
  "eyre",
  "global-common",
  "lazy_static",
@@ -1371,7 +1370,7 @@ checksum = "07e28edb80900c19c28f1072f2e8aeca7fa06b23cd4169cefe1af5aa3260783f"
 [[package]]
 name = "global-common"
 version = "0.1.0"
-source = "git+https://github.com/webby-creator/Global-Common#8d881b475df9a9f0bc9c9f65e476e6937cbbfb14"
+source = "git+https://github.com/webby-creator/Global-Common#3d38d5f43ad25573761073d7b582dbd4580f72e3"
 dependencies = [
  "eyre",
  "num_enum",
