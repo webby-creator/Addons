@@ -95,6 +95,7 @@ pub async fn serve(pool: Pool<Sqlite>) -> Result<()> {
             // Get dashboard page
             .route("/addon/:guid/dashboard/*O", get(get_addon_dashboard_page))
             .route("/addon/:guid/install", post(post_addon_install_user))
+            .route("/addon/:guid/publish", post(post_addon_publish))
             .route("/addon/:guid/icon", post(upload_icon))
             .route("/addon/:guid/gallery", post(upload_gallery_item))
             .route("/addon/:guid/template/data", get(get_all_template_data))
@@ -285,6 +286,31 @@ async fn get_active_addon_list(
     }
 
     Ok(Json(WrappingResponse::okay(ListResponse::all(items))))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AddonPublishJson {
+    pub draft: bool,
+    pub version: String,
+}
+
+async fn post_addon_publish(
+    Path(guid): Path<Uuid>,
+    State(db): State<SqlitePool>,
+    Json(value): Json<AddonPublishJson>,
+) -> Result<JsonResponse<&'static str>> {
+    let mut acq = db.acquire().await?;
+
+    let Some(mut addon) = AddonModel::find_one_by_guid(guid, &mut *acq).await? else {
+        return Err(eyre::eyre!("Addon not found"))?;
+    };
+
+    addon.version = value.version;
+
+    addon.update(&mut *acq).await?;
+
+    Ok(Json(WrappingResponse::okay("ok")))
 }
 
 // TODO: Route: (User) Uninstall

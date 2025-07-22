@@ -105,6 +105,26 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12, $13, $14, $14)",
 }
 
 impl AddonModel {
+    pub async fn update(&mut self, db: &mut SqliteConnection) -> Result<u64> {
+        self.updated_at = OffsetDateTime::now_utc();
+
+        Ok(sqlx::query("UPDATE addon SET name = $1, name_id = $2, tag_line = $3, description = $4, icon = $5, version = $6, action_url = $7, root_dashboard_page = $8, is_visible = $9, is_accepted = $10, updated_at = $11 WHERE id = $12")
+            .bind(&self.name)
+            .bind(&self.name_id)
+            .bind(&self.tag_line)
+            .bind(&self.description)
+            .bind(&self.icon)
+            .bind(&self.version)
+            .bind(&self.action_url)
+            .bind(&self.root_dashboard_page)
+            .bind(self.is_visible)
+            .bind(self.is_accepted)
+            .bind(self.updated_at)
+            .bind(self.id)
+            .execute(db)
+            .await?.rows_affected())
+    }
+
     pub async fn find_one_by_id(id: AddonId, db: &mut SqliteConnection) -> Result<Option<Self>> {
         Ok(sqlx::query_as(
             "SELECT id, member_id, member_uuid, guid, name, name_id, tag_line, description, icon, version, action_url, root_dashboard_page, is_visible, is_accepted, install_count, delete_reason, created_at, updated_at, deleted_at FROM addon WHERE id = $1"
