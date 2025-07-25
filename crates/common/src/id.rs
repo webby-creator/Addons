@@ -99,7 +99,14 @@ create_id!(TagId, i64);
 create_id!(MediaId, i64);
 create_id!(AddonMediaId, i64);
 create_id!(AddonInstanceId, i64);
-create_id!(WidgetId, i64);
 create_id!(SchemaDataId, i64);
 create_id!(SchemaDataTagId, i64);
 create_id!(AddonTemplatePageId, i64);
+
+create_id!(AddonWidgetId, i32);
+create_id!(AddonWidgetPanelId, i32);
+create_id!(AddonCompiledId, i32);
+create_id!(AddonCompiledWidgetId, i32);
+create_id!(AddonCompiledPageId, i32);
+create_id!(VisslAddonCodeId, i32);
+create_id!(VisslAddonPanelCodeId, i32);

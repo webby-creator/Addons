@@ -3,10 +3,7 @@ use std::{
     net::SocketAddr,
 };
 
-use addon_common::{
-    InstallResponse, JsonListResponse, JsonResponse, ListResponse, MemberPartial, MemberUuid,
-    RegisterNewJson, WebsitePartial, WebsiteUuid, WrappingResponse,
-};
+use addon_common::{JsonListResponse, JsonResponse, ListResponse, WebsiteUuid, WrappingResponse};
 use api::{schema::SchematicField, CmsCreateResponse};
 use axum::{
     body::Body,
@@ -18,9 +15,9 @@ use axum::{
 };
 use database::{
     AddonDashboardPage, AddonInstanceModel, AddonModel, AddonPermissionModel,
-    AddonTemplatePageContentModel, AddonTemplatePageModel, MediaUploadModel, NewAddonInstanceModel,
-    NewAddonMediaModel, NewAddonModel, NewMediaUploadModel, NewSchemaDataModel, NewSchemaModel,
-    SchemaDataFieldUpdate, SchemaDataModel, SchemaDataTagModel, SchemaModel, WidgetModel,
+    AddonTemplatePageContentModel, AddonTemplatePageModel, MediaUploadModel, NewAddonMediaModel,
+    NewAddonModel, NewMediaUploadModel, NewSchemaDataModel, NewSchemaModel, SchemaDataFieldUpdate,
+    SchemaDataModel, SchemaDataTagModel, SchemaModel,
 };
 use eyre::{Context, ContextCompat};
 use futures::TryStreamExt;
@@ -30,9 +27,7 @@ use global_common::{
         CmsCreate, CmsCreateDataColumn, CmsCreateDataColumnTag, CmsQuery, CmsUpdate,
         CmsUpdateDataCell,
     },
-    response::{
-        AddonInstallResponse, BasicCmsInfo, CmsResponse, CmsRowResponse, PublicSchema, SchemaTag,
-    },
+    response::{BasicCmsInfo, CmsResponse, CmsRowResponse, PublicSchema, SchemaTag},
     schema::{SchematicFieldKey, SchematicFieldType},
     uuid::CollectionName,
     value::SimpleValue,
@@ -46,7 +41,7 @@ use local_common::{
         get_full_file_path, get_next_uploading_file_path, get_thumb_file_path,
         read_and_upload_data, register_b2, StorageService,
     },
-    AddonId, DashboardPageInfo, MemberId, MemberModel, WebsiteModel, WidgetId,
+    AddonId, DashboardPageInfo, MemberId,
 };
 use mime_guess::mime::APPLICATION_JSON;
 use serde::Deserialize;
@@ -60,7 +55,8 @@ use uuid::Uuid;
 
 use crate::Result;
 
-mod dev;
+mod addon;
+mod vissl;
 mod website;
 
 lazy_static! {
@@ -94,8 +90,6 @@ pub async fn serve(pool: Pool<Sqlite>) -> Result<()> {
             .route("/addon/:guid/instance/:website", get(get_addon_instance))
             // Get dashboard page
             .route("/addon/:guid/dashboard/*O", get(get_addon_dashboard_page))
-            .route("/addon/:guid/install", post(post_addon_install_user))
-            .route("/addon/:guid/publish", post(post_addon_publish))
             .route("/addon/:guid/icon", post(upload_icon))
             .route("/addon/:guid/gallery", post(upload_gallery_item))
             .route("/addon/:guid/template/data", get(get_all_template_data))
@@ -104,7 +98,6 @@ pub async fn serve(pool: Pool<Sqlite>) -> Result<()> {
                 get(get_template_page_data).post(update_template_page_data),
             )
             // Private
-            .route("/addon/:guid/item", post(add_addon_item))
             .route("/addon/:guid/access/:user", get(get_addon_member_access))
             .route("/addon/:guid/schemas", get(get_addon_schemas))
             .route("/addon/:guid/schema/new", post(new_cms_collection))
@@ -136,8 +129,9 @@ pub async fn serve(pool: Pool<Sqlite>) -> Result<()> {
                 post(duplicate_cms_row_cell),
             )
             //
-            .nest("/dev", dev::routes())
-            .nest("/website", website::routes())
+            .nest("/addon/:guid/vissl", vissl::routes())
+            .nest("/website/:website_id", website::routes())
+            .nest("/addon/:addon_id", addon::routes())
             .layer(TraceLayer::new_for_http())
             .layer(Extension(uploader.clone()))
             .with_state(pool),
@@ -265,18 +259,26 @@ struct ActiveAddonsResponse {
 }
 
 async fn get_active_addon_list(
-    Path(website): Path<Uuid>,
+    Path(website): Path<WebsiteUuid>,
     State(db): State<SqlitePool>,
 ) -> Result<JsonListResponse<ActiveAddonsResponse>> {
-    let active =
-        AddonInstanceModel::find_by_website_uuid(website, &mut *db.acquire().await?).await?;
+    Ok(Json(WrappingResponse::okay(ListResponse::all(
+        query_active_addon_list(website, &mut *db.acquire().await?).await?,
+    ))))
+}
+
+pub async fn query_active_addon_list(
+    website: WebsiteUuid,
+    db: &mut SqliteConnection,
+) -> Result<Vec<ActiveAddonsResponse>> {
+    let active = AddonInstanceModel::find_by_website_uuid(*website, db).await?;
 
     let mut items = Vec::new();
 
     for instance in active {
-        let addon = AddonModel::find_one_by_id(instance.addon_id, &mut *db.acquire().await?)
+        let addon = AddonModel::find_one_by_id(instance.addon_id, db)
             .await?
-            .unwrap();
+            .context("Addon not found")?;
 
         items.push(ActiveAddonsResponse {
             instance_guid: instance.public_id,
@@ -285,158 +287,12 @@ async fn get_active_addon_list(
         });
     }
 
-    Ok(Json(WrappingResponse::okay(ListResponse::all(items))))
-}
-
-#[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct AddonPublishJson {
-    pub draft: bool,
-    pub version: String,
-}
-
-async fn post_addon_publish(
-    Path(guid): Path<Uuid>,
-    State(db): State<SqlitePool>,
-    Json(value): Json<AddonPublishJson>,
-) -> Result<JsonResponse<&'static str>> {
-    let mut acq = db.acquire().await?;
-
-    let Some(mut addon) = AddonModel::find_one_by_guid(guid, &mut *acq).await? else {
-        return Err(eyre::eyre!("Addon not found"))?;
-    };
-
-    addon.version = value.version;
-
-    addon.update(&mut *acq).await?;
-
-    Ok(Json(WrappingResponse::okay("ok")))
+    Ok(items)
 }
 
 // TODO: Route: (User) Uninstall
 // TODO: Route: (User) Resume Install
 // TODO: Route: (Addon) Instance Install Complete
-
-#[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct AddonInstall {
-    version: String,
-
-    website_id: WebsiteUuid,
-    member_id: MemberUuid,
-
-    // TODO: Both of these are said Models'
-    member: MemberModel,
-    website: WebsiteModel,
-}
-
-async fn post_addon_install_user(
-    Path(guid): Path<Uuid>,
-    State(db): State<SqlitePool>,
-    Json(value): Json<AddonInstall>,
-) -> Result<JsonResponse<AddonInstallResponse>> {
-    let mut acq = db.acquire().await?;
-
-    // let from_server = headers.get("x-server-ip").expect("Expected Server Origin IP")
-    //     .to_str().unwrap().to_string();
-    // debug!("{from_server}");
-
-    let Some(addon) = AddonModel::find_one_by_guid(guid, &mut *acq).await? else {
-        return Err(eyre::eyre!("Addon not found"))?;
-    };
-
-    // TODO: Check if website already has addon installed
-    // TODO: Ensure member_id is owner of website or has admin
-
-    // TODO: Utilize perms
-    let _perms =
-        AddonPermissionModel::find_by_scope_addon_id(addon.id, "member", &mut *acq).await?;
-
-    // 1. Insert Website Addon
-    let mut inst = NewAddonInstanceModel {
-        addon_id: addon.id,
-        website_id: value.website.pk,
-        website_uuid: *value.website_id,
-        version: value.version,
-    }
-    .insert(&mut *acq)
-    .await?;
-
-    if let Some(url) = addon.action_url {
-        // 2. Send install request
-        let resp = CLIENT
-            .post(format!("{url}/registration"))
-            .json(&RegisterNewJson {
-                instance_id: inst.public_id,
-                version: inst.version.clone(),
-
-                owner_id: value.member_id,
-                website_id: value.website_id,
-
-                // TODO: Use Permissions
-                member: MemberPartial {
-                    uuid: value.member.id.into(),
-                    role: value.member.role,
-                    display_name: value.member.display_name,
-                    tag: Some(value.member.tag),
-                    email: Some(value.member.email),
-                    created_at: value.member.created_at,
-                    updated_at: value.member.updated_at,
-                },
-                website: WebsitePartial {
-                    public_id: value.website.id.into(),
-                    name: value.website.name,
-                    url: value.website.url,
-                    theme_id: value.website.theme_id,
-                    created_at: value.website.created_at,
-                    updated_at: value.website.updated_at,
-                },
-            })
-            .send()
-            .await?;
-
-        // TODO: Create Addon Template Pages & Widget info in main program
-        // TODO: Its' possible for the registration to succeed but WrappingResponse wil be an Error
-
-        if resp.status().is_success() {
-            // 3. Get Response - Can have multiple resolutions.
-            //  - Could want to redirect the user to finish on another site.
-            //  - Could be finished now
-            //  - Could be step 1 and require multiple setup requests & permission steps.
-            let resp: WrappingResponse<InstallResponse> = resp.json().await?;
-
-            match resp {
-                WrappingResponse::Resp(InstallResponse::Complete) => {
-                    inst.is_setup = true;
-                    inst.update(&mut *acq).await?;
-                }
-
-                WrappingResponse::Resp(InstallResponse::Redirect(_url)) => {
-                    // TODO
-                }
-
-                WrappingResponse::Error(e) => return Ok(Json(WrappingResponse::Error(e))),
-            }
-
-            Ok(Json(WrappingResponse::okay(AddonInstallResponse {
-                instance_uuid: inst.public_id,
-            })))
-        } else {
-            // TODO: Remove once registration is fully working
-            inst.delete(&mut *acq).await?;
-
-            Ok(Json(WrappingResponse::error(resp.text().await?)))
-        }
-    } else {
-        inst.is_setup = true;
-        inst.update(&mut *acq).await?;
-
-        Ok(Json(WrappingResponse::okay(AddonInstallResponse {
-            instance_uuid: inst.public_id,
-            // TODO: Maybe return version?
-        })))
-    }
-}
 
 #[derive(Deserialize)]
 struct Query {
@@ -568,38 +424,6 @@ async fn get_addon_member_access(
     };
 
     Ok(Json(WrappingResponse::okay(addon.member_uuid == member)))
-}
-
-#[derive(Deserialize)]
-#[serde(tag = "type", rename_all = "lowercase")]
-pub enum AddItemJson {
-    Widget { uuid: Uuid, id: WidgetId },
-}
-
-async fn add_addon_item(
-    Path(addon): Path<Uuid>,
-    State(db): State<SqlitePool>,
-    Json(value): Json<AddItemJson>,
-) -> Result<JsonResponse<&'static str>> {
-    let mut acq = db.acquire().await?;
-
-    let Some(addon) = AddonModel::find_one_by_guid(addon, &mut *acq).await? else {
-        return Err(eyre::eyre!("Addon not found"))?;
-    };
-
-    match value {
-        AddItemJson::Widget { id, uuid } => {
-            WidgetModel {
-                addon_id: addon.id,
-                widget_id: id,
-                public_id: uuid,
-            }
-            .insert(&mut *acq)
-            .await?;
-        }
-    }
-
-    Ok(Json(WrappingResponse::okay("ok")))
 }
 
 async fn get_addon_dashboard_page(

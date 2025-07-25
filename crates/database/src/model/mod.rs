@@ -17,15 +17,18 @@ mod schema;
 mod schema_data;
 mod schema_data_tag;
 mod settings;
+mod vissl;
 
 pub use addon::*;
 pub use media_upload::*;
 pub use schema::*;
 pub use schema_data::*;
 pub use schema_data_tag::*;
+pub use vissl::*;
 // pub use settings::*;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(transparent)]
 pub struct Binary<T: ?Sized>(pub T);
 
 impl<T> Deref for Binary<T> {

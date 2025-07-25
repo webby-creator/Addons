@@ -4,10 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-# TODO: Place into global-common as optional feature
-# TODO: Simplify
+scripting = { git = "https://github.com/webby-creator/Scripting", version = "0.1.0" }
 storage = { path = "../../../website/crates/storage" }
-api = { path = "../../../website/crates/api" }
+api = { path = "../../../website/crates/api", features = ["sqlx"] }
 
 global-common = { workspace = true, features = ["sqlx"] }
 local-common = { path = "../common" }

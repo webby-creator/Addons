@@ -1,14 +1,22 @@
-use addon_common::{InstallResponse, JsonResponse, WebsiteUuid, WrappingResponse};
+use addon_common::{
+    InstallResponse, JsonListResponse, JsonResponse, WebsiteUuid, WrappingResponse,
+};
+use api::ListResponse;
 use axum::{
     extract::{Path, State},
     routing::{get, post},
     Json, Router,
 };
-use database::{AddonInstanceModel, AddonModel, NewAddonInstanceModel, WidgetModel};
+use database::{
+    AddonCompiledModel, AddonCompiledWidget, AddonInstanceModel, AddonModel, AddonWidgetContent,
+    NewAddonInstanceModel, WidgetModel,
+};
 use eyre::ContextCompat;
+use global_common::id::{AddonWidgetPublicId, WebsitePublicId};
 use local_common::{MemberModel, WebsiteId, WebsiteModel};
 use serde::Deserialize;
 use sqlx::SqlitePool;
+use storage::{widget::CompiledWidgetSettings, DisplayStore};
 use uuid::Uuid;
 
 use crate::Result;
@@ -17,12 +25,14 @@ use super::CLIENT;
 
 pub fn routes() -> Router<SqlitePool> {
     Router::new()
-        .route("/:website_id/duplicate", post(duplicate_website_addons))
-        .route("/:website_id/editor/addons", get(get_editor_widget_list))
+        .route("/duplicate", post(duplicate_website_addons))
+        .route("/editor/addons", get(get_editor_widget_list))
         .route(
-            "/:website_id/editor/object/:object_id/data",
+            "/editor/object/:object_id/data",
             get(get_editor_widget_data),
         )
+        .route("/widget/:widget_id", get(get_website_addon_widget))
+        .route("/widgets", get(get_website_addon_widgets))
 }
 
 #[derive(Deserialize)]
@@ -155,4 +165,114 @@ async fn get_editor_widget_data(
             // "pages"
         }
     ]))))
+}
+
+#[derive(serde::Serialize)]
+pub struct WebsiteAddonWidgetInfo {
+    pub data: DisplayStore,
+    pub script: Option<String>,
+    pub settings: CompiledWidgetSettings,
+}
+
+/// Gets' the Published Widget data
+async fn get_website_addon_widget(
+    State(db): State<SqlitePool>,
+
+    Path((website_id, widget_id)): Path<(WebsitePublicId, AddonWidgetPublicId)>,
+) -> Result<JsonResponse<Option<WebsiteAddonWidgetInfo>>> {
+    let mut acq = db.acquire().await?;
+
+    let widget = AddonWidgetContent::find_one_by_public_id(widget_id, &mut acq)
+        .await?
+        .context("Widget not found")?;
+
+    let active = AddonInstanceModel::find_by_website_uuid(*website_id, &mut acq).await?;
+
+    for instance in active {
+        let addon = AddonModel::find_one_by_id(instance.addon_id, &mut acq)
+            .await?
+            .unwrap();
+
+        // TODO: A Temporary fix
+        if instance.version.is_empty() {
+            warn!("Missing Instance Version for Website Addon {}", addon.guid);
+            continue;
+        }
+
+        // Ensure we're looking at the specific addon
+        if widget.addon_id != addon.id {
+            continue;
+        }
+
+        let addon_compiled = AddonCompiledModel::find_one_by_addon_uuid_and_version(
+            addon.id,
+            &instance.version,
+            &mut acq,
+        )
+        .await?
+        .context("Addon not found")?;
+
+        let mut widget_comp = AddonCompiledWidget::find_one_by_compiled_id_and_widget_id(
+            addon_compiled.pk,
+            widget.pk,
+            &mut acq,
+        )
+        .await?
+        .context("Compiled Widget not found")?;
+
+        for panel in &mut widget_comp.settings.0.panels {
+            if let Some(script) = panel.script.as_mut() {
+                *script = scripting::swc::compile(script.clone())?;
+            }
+        }
+
+        return Ok(Json(WrappingResponse::okay(Some(WebsiteAddonWidgetInfo {
+            data: widget_comp.data.0,
+            script: widget_comp
+                .script
+                .map(scripting::swc::compile)
+                .transpose()?,
+            settings: widget_comp.settings.0,
+        }))));
+    }
+
+    Ok(Json(WrappingResponse::okay(None)))
+}
+
+async fn get_website_addon_widgets(
+    State(db): State<SqlitePool>,
+
+    Path(website_id): Path<WebsitePublicId>,
+) -> Result<JsonListResponse<serde_json::Value>> {
+    let mut acq = db.acquire().await?;
+
+    let mut items = Vec::new();
+
+    for instance in AddonInstanceModel::find_by_website_uuid(*website_id, &mut *acq).await? {
+        let addon = AddonModel::find_one_by_id(instance.addon_id, &mut *acq)
+            .await?
+            .context("Addon not found")?;
+
+        let widget_refs = WidgetModel::find_by_addon_id(instance.addon_id, &mut *acq).await?;
+
+        let mut widget_info = Vec::new();
+
+        for model in widget_refs {
+            let found =
+                AddonWidgetContent::find_one_by_public_id_no_data(model.public_id, &mut acq)
+                    .await?
+                    .context("Missing Widget")?;
+
+            widget_info.push(found);
+        }
+
+        items.push(serde_json::json!({
+            "instance": instance.public_id,
+            "guid": addon.guid,
+            "name": addon.name,
+            "widgets": widget_info,
+        }));
+    }
+
+    Ok(Json(WrappingResponse::okay(ListResponse::all(items))))
 }

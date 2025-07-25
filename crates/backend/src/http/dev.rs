@@ -5,8 +5,8 @@ use axum::{
     Json, Router,
 };
 use database::{
-    AddonDashboardPage, AddonModel, AddonTemplatePageContentModel, AddonTemplatePageModel,
-    NewAddonTemplatePageModel, SchemaModel,
+    AddonCompiledModel, AddonDashboardPage, AddonModel, AddonTemplatePageContentModel,
+    AddonTemplatePageModel, AddonWidgetContent, NewAddonTemplatePageModel, SchemaModel,
 };
 use local_common::DashboardPageInfo;
 use serde::Deserialize;
@@ -32,11 +32,12 @@ async fn get_addon_overview(
         return Err(eyre::eyre!("Addon not found"))?;
     };
 
-    //
-    let dash_pages = AddonDashboardPage::find_by_id(addon.id, &mut *acq).await?;
-    // let widgets = WidgetModel::find_by_addon_id(addon.id, &mut *acq).await?;
-    let template_pages = AddonTemplatePageModel::find_by_addon_id(addon.id, &mut *acq).await?;
-    let schemas = SchemaModel::find_by_addon_id(addon.id, &mut *acq)
+    let widgets = AddonWidgetContent::get_all_no_data(addon.id, &mut acq).await?;
+    let published = AddonCompiledModel::get_all(addon.id, 0, 10, &mut acq).await?;
+    let dash_pages = AddonDashboardPage::find_by_id(addon.id, &mut acq).await?;
+    let template_pages = AddonTemplatePageModel::find_by_addon_id(addon.id, &mut acq).await?;
+
+    let schemas = SchemaModel::find_by_addon_id(addon.id, &mut acq)
         .await?
         .into_iter()
         .map(|schema| api::PublicSchema {
@@ -59,7 +60,8 @@ async fn get_addon_overview(
         .collect::<Vec<_>>();
 
     Ok(Json(WrappingResponse::okay(serde_json::json!({
-        // "widgets": widgets,
+        "widgets": widgets,
+        "published": published,
         "sitePages": template_pages,
         "dashboardPages": dash_pages.into_iter().map(|p| p.into()).collect::<Vec<DashboardPageInfo>>(),
         "dataGUIs": [],

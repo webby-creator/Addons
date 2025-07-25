@@ -1,15 +1,15 @@
 use eyre::Result;
-use local_common::{AddonId, WidgetId};
+use global_common::id::AddonWidgetPublicId;
+use local_common::{AddonId, AddonWidgetId};
 use serde::Serialize;
 use sqlx::{FromRow, SqliteConnection};
-use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, FromRow)]
 pub struct WidgetModel {
     pub addon_id: AddonId,
 
-    pub widget_id: WidgetId,
-    pub public_id: Uuid,
+    pub widget_id: AddonWidgetId,
+    pub public_id: AddonWidgetPublicId,
 }
 
 impl WidgetModel {
@@ -24,7 +24,7 @@ impl WidgetModel {
         Ok(())
     }
 
-    pub async fn delete(id: WidgetId, db: &mut SqliteConnection) -> Result<u64> {
+    pub async fn delete(id: AddonWidgetId, db: &mut SqliteConnection) -> Result<u64> {
         let res = sqlx::query("DELETE FROM ref_widget WHERE widget_id = $1")
             .bind(id)
             .execute(db)
@@ -42,7 +42,10 @@ impl WidgetModel {
         )
     }
 
-    pub async fn find_one_by_id(id: WidgetId, db: &mut SqliteConnection) -> Result<Option<Self>> {
+    pub async fn find_one_by_id(
+        id: AddonWidgetId,
+        db: &mut SqliteConnection,
+    ) -> Result<Option<Self>> {
         Ok(sqlx::query_as(
             "SELECT addon_id, widget_id, public_id FROM ref_widget WHERE widget_id = $1",
         )

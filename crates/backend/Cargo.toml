@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+scripting = { git = "https://github.com/webby-creator/Scripting", version = "0.1.0" }
 api = { path = "../../../website/crates/api" }
 storage = { path = "../../../website/crates/storage" }
 
