@@ -70,7 +70,7 @@ impl NewAddonMediaModel {
         )
         .bind(addon_id)
         .bind(type_of)
-        .bind(&uploader_id)
+        .bind(uploader_id)
         .bind(&embed_url)
         .bind(now)
         .execute(db)
@@ -91,12 +91,12 @@ impl NewAddonMediaModel {
 
 impl AddonMediaModel {
     pub async fn find_by_addon(addon_id: AddonId, db: &mut SqliteConnection) -> Result<Vec<Self>> {
-        Ok(sqlx::query_as(
+        sqlx::query_as(
             "SELECT id, addon_id, type_of, upload_id, embed_url, idx, created_at, deleted_at FROM media_upload WHERE addon_id = $1",
         )
         .bind(addon_id)
         .fetch_all(db)
-        .await?)
+        .await
     }
 }
 

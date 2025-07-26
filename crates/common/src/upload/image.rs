@@ -131,18 +131,18 @@ pub async fn process_image(
                 (150, 150),
             )?;
 
-        let thumb_file_path = get_thumb_file_path(&store_path);
+        let thumb_file_path = get_thumb_file_path(store_path);
 
         storage
             .upload(
                 thumb_file_path.clone(),
-                mime_guess::from_ext(&thumbnail_original_type).first_or_octet_stream(),
+                mime_guess::from_ext(thumbnail_original_type).first_or_octet_stream(),
                 thumbnail_original_data,
             )
             .await?;
     }
 
-    let full_file_path = get_full_file_path(&store_path);
+    let full_file_path = get_full_file_path(store_path);
 
     storage
         .upload(

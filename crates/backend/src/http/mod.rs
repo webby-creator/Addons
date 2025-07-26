@@ -148,7 +148,7 @@ async fn handle_api(
 ) -> Result<impl IntoResponse> {
     let mut acq = db.acquire().await?;
 
-    let Some(addon) = AddonModel::find_one_by_guid(addon_id, &mut *acq).await? else {
+    let Some(addon) = AddonModel::find_one_by_guid(addon_id, &mut acq).await? else {
         return Err(eyre::eyre!("Addon not found"))?;
     };
 
@@ -348,12 +348,12 @@ async fn get_addon_instance(
 ) -> Result<JsonResponse<serde_json::Value>> {
     let mut acq = db.acquire().await?;
 
-    let Some(addon) = AddonModel::find_one_by_guid(addon_id, &mut *acq).await? else {
+    let Some(addon) = AddonModel::find_one_by_guid(addon_id, &mut acq).await? else {
         return Err(eyre::eyre!("Addon not found"))?;
     };
 
     let Some(inst) =
-        AddonInstanceModel::find_by_addon_website_id(addon.id, website_id, &mut *acq).await?
+        AddonInstanceModel::find_by_addon_website_id(addon.id, website_id, &mut acq).await?
     else {
         return Err(eyre::eyre!("Addon Instance not found"))?;
     };
@@ -377,7 +377,7 @@ async fn post_addon_instance(
 ) -> Result<JsonResponse<&'static str>> {
     let mut acq = db.acquire().await?;
 
-    let mut inst = AddonInstanceModel::find_by_uuid(instance_id, &mut *acq)
+    let mut inst = AddonInstanceModel::find_by_uuid(instance_id, &mut acq)
         .await?
         .context("Addon Instance not found")?;
 
@@ -389,7 +389,7 @@ async fn post_addon_instance(
         inst.settings = Some(sqlx::types::Json(settings));
     }
 
-    inst.update(&mut *acq).await?;
+    inst.update(&mut acq).await?;
 
     Ok(Json(WrappingResponse::okay("ok")))
 }
@@ -400,11 +400,11 @@ async fn get_addon_public(
 ) -> Result<JsonResponse<AddonPublic>> {
     let mut acq = db.acquire().await?;
 
-    let Some(addon) = AddonModel::find_one_by_guid(guid, &mut *acq).await? else {
+    let Some(addon) = AddonModel::find_one_by_guid(guid, &mut acq).await? else {
         return Err(eyre::eyre!("Addon not found"))?;
     };
 
-    let perms = AddonPermissionModel::find_by_addon_id(addon.id, &mut *acq).await?;
+    let perms = AddonPermissionModel::find_by_addon_id(addon.id, &mut acq).await?;
 
     Ok(Json(WrappingResponse::okay(addon.into_public(
         None,
@@ -419,7 +419,7 @@ async fn get_addon_member_access(
 ) -> Result<JsonResponse<bool>> {
     let mut acq = db.acquire().await?;
 
-    let Some(addon) = AddonModel::find_one_by_guid(addon, &mut *acq).await? else {
+    let Some(addon) = AddonModel::find_one_by_guid(addon, &mut acq).await? else {
         return Err(eyre::eyre!("Addon not found"))?;
     };
 
@@ -447,19 +447,17 @@ async fn get_addon_dashboard_page(
     while let Some(entry) = files.next_entry().await? {
         let meta = entry.metadata().await?;
 
-        if meta.is_file() {
-            if entry.file_name().to_string_lossy().ends_with(".js") {
-                let contents = tokio::fs::read_to_string(entry.path()).await?;
+        if meta.is_file() && entry.file_name().to_string_lossy().ends_with(".js") {
+            let contents = tokio::fs::read_to_string(entry.path()).await?;
 
-                return Ok(resp_builder
-                    .header(
-                        hyper::header::CONTENT_TYPE,
-                        mime_guess::mime::TEXT_JAVASCRIPT.as_ref(),
-                    )
-                    .body(contents)
-                    .unwrap()
-                    .into_response());
-            }
+            return Ok(resp_builder
+                .header(
+                    hyper::header::CONTENT_TYPE,
+                    mime_guess::mime::TEXT_JAVASCRIPT.as_ref(),
+                )
+                .body(contents)
+                .unwrap()
+                .into_response());
         }
     }
 
@@ -675,12 +673,11 @@ async fn get_template_page_data(
 ) -> Result<JsonResponse<serde_json::Value>> {
     let mut acq = db.acquire().await?;
 
-    let Some(addon) = AddonModel::find_one_by_guid(addon_id, &mut *acq).await? else {
+    let Some(addon) = AddonModel::find_one_by_guid(addon_id, &mut acq).await? else {
         return Err(eyre::eyre!("Addon not found"))?;
     };
 
-    let Some(addon_page) =
-        AddonTemplatePageModel::find_by_public_id(template_id, &mut *acq).await?
+    let Some(addon_page) = AddonTemplatePageModel::find_by_public_id(template_id, &mut acq).await?
     else {
         return Err(eyre::eyre!("Addon page not found"))?;
     };
@@ -689,7 +686,7 @@ async fn get_template_page_data(
         return Err(eyre::eyre!("Addon page is not valid"))?;
     }
 
-    let page_content = AddonTemplatePageContentModel::find_one_by_page_id(addon_page.id, &mut *acq)
+    let page_content = AddonTemplatePageContentModel::find_one_by_page_id(addon_page.id, &mut acq)
         .await?
         .unwrap();
 
@@ -709,12 +706,12 @@ async fn update_template_page_data(
 ) -> Result<JsonResponse<&'static str>> {
     let mut acq = db.acquire().await?;
 
-    let Some(addon) = AddonModel::find_one_by_guid(addon_id, &mut *acq).await? else {
+    let Some(addon) = AddonModel::find_one_by_guid(addon_id, &mut acq).await? else {
         return Err(eyre::eyre!("Addon not found"))?;
     };
 
     let Some(mut addon_page) =
-        AddonTemplatePageModel::find_by_public_id(template_id, &mut *acq).await?
+        AddonTemplatePageModel::find_by_public_id(template_id, &mut acq).await?
     else {
         return Err(eyre::eyre!("Addon page not found"))?;
     };
@@ -732,7 +729,7 @@ async fn update_template_page_data(
 
     page.set_data(
         page.data()
-            .into_iter()
+            .iter()
             .filter_map(|(key, v)| {
                 if key.is_website() || ids.contains(key) {
                     Some((*key, v.clone()))
@@ -748,10 +745,10 @@ async fn update_template_page_data(
         sqlx::types::Json(page.get_object_ids().into_iter().map(|v| v.id).collect());
 
     // TODO: Update only changed
-    addon_page.update(&mut *acq).await?;
+    addon_page.update(&mut acq).await?;
 
     AddonTemplatePageContentModel::new(addon_page.id, page)
-        .update(&mut *acq)
+        .update(&mut acq)
         .await?;
 
     Ok(Json(WrappingResponse::okay("ok")))
@@ -779,17 +776,17 @@ async fn get_all_template_data(
 ) -> Result<JsonListResponse<AddonPageWithDataItem>> {
     let mut acq = db.acquire().await?;
 
-    let Some(addon) = AddonModel::find_one_by_guid(addon_id, &mut *acq).await? else {
+    let Some(addon) = AddonModel::find_one_by_guid(addon_id, &mut acq).await? else {
         return Err(eyre::eyre!("Addon not found"))?;
     };
 
-    let list = AddonTemplatePageModel::find_by_addon_id(addon.id, &mut *acq).await?;
+    let list = AddonTemplatePageModel::find_by_addon_id(addon.id, &mut acq).await?;
 
     let mut items = Vec::new();
 
     for model in list {
         let Some(content) =
-            AddonTemplatePageContentModel::find_one_by_page_id(model.id, &mut *acq).await?
+            AddonTemplatePageContentModel::find_one_by_page_id(model.id, &mut acq).await?
         else {
             panic!("Unable to find Page Content");
         };
@@ -815,11 +812,11 @@ async fn get_addon_schemas(
 ) -> Result<JsonListResponse<BasicCmsInfo>> {
     let mut acq = db.acquire().await?;
 
-    let Some(addon) = AddonModel::find_one_by_guid(addon, &mut *acq).await? else {
+    let Some(addon) = AddonModel::find_one_by_guid(addon, &mut acq).await? else {
         return Err(eyre::eyre!("Addon not found"))?;
     };
 
-    let schemas = SchemaModel::find_by_addon_id(addon.id, &mut *acq).await?;
+    let schemas = SchemaModel::find_by_addon_id(addon.id, &mut acq).await?;
 
     Ok(Json(WrappingResponse::okay(ListResponse::all(
         schemas
@@ -850,7 +847,7 @@ pub async fn new_cms_collection(
 ) -> Result<JsonResponse<CmsCreateResponse>> {
     let mut acq = db.acquire().await?;
 
-    let addon = AddonModel::find_one_by_guid(addon_id, &mut *acq)
+    let addon = AddonModel::find_one_by_guid(addon_id, &mut acq)
         .await?
         .context("Addon not found")?;
 
@@ -873,7 +870,7 @@ pub async fn new_cms_collection(
         return Err(eyre::eyre!("Invalid Characters present"))?;
     }
 
-    if SchemaModel::find_one_by_public_id(addon.id, &coll.id, &mut *acq)
+    if SchemaModel::find_one_by_public_id(addon.id, &coll.id, &mut acq)
         .await?
         .is_some()
     {
@@ -984,15 +981,15 @@ pub async fn get_cms_info(
 ) -> Result<JsonResponse<CmsResponse>> {
     let mut acq = db.acquire().await?;
 
-    let addon = AddonModel::find_one_by_guid(addon_id, &mut *acq)
+    let addon = AddonModel::find_one_by_guid(addon_id, &mut acq)
         .await?
         .context("Addon not found")?;
 
-    let schema = SchemaModel::find_one_by_public_id(addon.id, &coll.id, &mut *acq)
+    let schema = SchemaModel::find_one_by_public_id(addon.id, &coll.id, &mut acq)
         .await?
         .context("Schema not found")?;
 
-    let tags = SchemaDataTagModel::get_all(schema.id, &mut *acq).await?;
+    let tags = SchemaDataTagModel::get_all(schema.id, &mut acq).await?;
 
     Ok(Json(WrappingResponse::okay(CmsResponse {
         form_id: None,
@@ -1017,7 +1014,7 @@ pub async fn get_cms_info(
         tags: tags
             .into_iter()
             .map(|t| SchemaTag {
-                id: *t.id as i64,
+                id: *t.id,
                 row_id: t.row_id,
                 name: t.name,
                 color: t.color,
@@ -1034,11 +1031,11 @@ pub async fn update_cms(
 ) -> Result<JsonResponse<&'static str>> {
     let mut acq = db.acquire().await?;
 
-    let addon = AddonModel::find_one_by_guid(addon_id, &mut *acq)
+    let addon = AddonModel::find_one_by_guid(addon_id, &mut acq)
         .await?
         .context("Addon not found")?;
 
-    let mut schema = SchemaModel::find_one_by_public_id(addon.id, &coll.id, &mut *acq)
+    let mut schema = SchemaModel::find_one_by_public_id(addon.id, &coll.id, &mut acq)
         .await?
         .context("Schema not found")?;
 
@@ -1046,7 +1043,7 @@ pub async fn update_cms(
         schema.views.0 = views;
     }
 
-    schema.update(&mut *acq).await?;
+    schema.update(&mut acq).await?;
 
     Ok(Json(WrappingResponse::okay("ok")))
 }
@@ -1068,14 +1065,14 @@ pub async fn get_cms_query(
     let mut acq = db.acquire().await?;
 
     let addon = if addon_id.is_nil() && coll.ns.is_some() {
-        match AddonModel::find_one_by_name_id(coll.ns.as_deref().unwrap(), &mut *acq).await? {
+        match AddonModel::find_one_by_name_id(coll.ns.as_deref().unwrap(), &mut acq).await? {
             Some(v) => v,
             None => {
                 return Err(eyre::eyre!("Addon not found"))?;
             }
         }
     } else {
-        match AddonModel::find_one_by_guid(addon_id, &mut *acq).await? {
+        match AddonModel::find_one_by_guid(addon_id, &mut acq).await? {
             Some(v) => v,
             None => {
                 return Err(eyre::eyre!("Addon not found"))?;
@@ -1085,7 +1082,7 @@ pub async fn get_cms_query(
 
     // addon.no_access_error(member.id(), &mut *acq).await?;
 
-    let schema = match SchemaModel::find_one_by_public_id(addon.id, &coll.id, &mut *acq).await? {
+    let schema = match SchemaModel::find_one_by_public_id(addon.id, &coll.id, &mut acq).await? {
         Some(v) => v,
         None => {
             // TODO: If coll.ns exists and SchemaModel isn't found search Query Addons Program
@@ -1118,7 +1115,7 @@ pub async fn get_cms_query(
                     //     validate_item(&schema.fields, item)?;
                     // }
 
-                    return Ok(Json(WrappingResponse::okay(ListResponse {
+                    Ok(Json(WrappingResponse::okay(ListResponse {
                         offset: resp.offset,
                         limit: resp.limit,
                         total: resp.total,
@@ -1130,41 +1127,31 @@ pub async fn get_cms_query(
                                 fields,
                             })
                             .collect(),
-                    })));
+                    })))
                 }
 
-                WrappingResponse::Error(e) => return Ok(Json(WrappingResponse::Error(e))),
+                WrappingResponse::Error(e) => Ok(Json(WrappingResponse::Error(e))),
             }
         } else {
             Ok(Json(resp.json().await?))
         }
     } else {
-        let total = SchemaDataModel::count_by(
-            addon.id,
-            &schema,
-            filters.as_ref().map(|v| v.as_slice()),
-            &mut *acq,
-        )
-        .await?;
+        let total =
+            SchemaDataModel::count_by(addon.id, &schema, filters.as_deref(), &mut acq).await?;
 
         let data = SchemaDataModel::find_by(
             addon.id,
             &schema,
-            filters.as_ref().map(|v| v.as_slice()),
+            filters.as_deref(),
             sort,
             offset,
             limit,
-            &mut *acq,
+            &mut acq,
         )
         .await?;
 
-        let columns = if let Some(columns) = columns {
-            Some(HashSet::from_iter(
-                columns.split(',').map(|v| v.to_string()),
-            ))
-        } else {
-            None
-        };
+        let columns =
+            columns.map(|columns| HashSet::from_iter(columns.split(',').map(|v| v.to_string())));
 
         let mut items = Vec::new();
 
@@ -1260,11 +1247,11 @@ pub async fn create_new_data_column(
 ) -> Result<JsonResponse<SchematicField>> {
     let mut acq = db.acquire().await?;
 
-    let addon = AddonModel::find_one_by_guid(addon_id, &mut *acq)
+    let addon = AddonModel::find_one_by_guid(addon_id, &mut acq)
         .await?
         .context("Addon not found")?;
 
-    let mut schema = SchemaModel::find_one_by_public_id(addon.id, &coll.id, &mut *acq)
+    let mut schema = SchemaModel::find_one_by_public_id(addon.id, &coll.id, &mut acq)
         .await?
         .context("Schema not found")?;
 
@@ -1279,7 +1266,7 @@ pub async fn create_new_data_column(
 
     let field = insert_columns(create_data, &mut schema)?;
 
-    schema.update(&mut *acq).await?;
+    schema.update(&mut acq).await?;
 
     Ok(Json(WrappingResponse::okay(field)))
 }
@@ -1296,20 +1283,20 @@ fn insert_columns(
     let key = SchematicFieldKey::Other(id.trim().to_string());
 
     if schema.fields.iter().filter(|(_, v)| !v.is_deleted).count() >= 20 {
-        return Err(eyre::eyre!("Too many columns"))?;
+        Err(eyre::eyre!("Too many columns"))?;
     }
 
     if schema.fields.len() >= 100 {
-        return Err(eyre::eyre!("Too many columns created and deleted"))?;
+        Err(eyre::eyre!("Too many columns created and deleted"))?;
     }
 
     if let Some(field) = schema.fields.get(&key) {
         if field.is_deleted {
-            return Err(eyre::eyre!(
+            Err(eyre::eyre!(
                 "Cannot create a new schema from a previously used ID"
             ))?;
         } else {
-            return Err(eyre::eyre!("Column ID Already Exists"))?;
+            Err(eyre::eyre!("Column ID Already Exists"))?;
         }
     }
 
@@ -1317,7 +1304,7 @@ fn insert_columns(
     if (type_of == SchematicFieldType::Reference || type_of == SchematicFieldType::MultiReference)
         && referenced_schema.is_none()
     {
-        return Err(eyre::eyre!("Reference is missing the schema"))?;
+        Err(eyre::eyre!("Reference is missing the schema"))?;
     }
 
     let len = schema.fields.len();
@@ -1345,11 +1332,11 @@ pub async fn add_data_column_tag(
 ) -> Result<JsonResponse<api::SchemaTag>> {
     let mut acq = db.acquire().await?;
 
-    let addon = AddonModel::find_one_by_guid(addon_id, &mut *acq)
+    let addon = AddonModel::find_one_by_guid(addon_id, &mut acq)
         .await?
         .context("Addon not found")?;
 
-    let mut schema = SchemaModel::find_one_by_public_id(addon.id, &coll.id, &mut *acq)
+    let mut schema = SchemaModel::find_one_by_public_id(addon.id, &coll.id, &mut acq)
         .await?
         .context("Schema not found")?;
 
@@ -1362,11 +1349,11 @@ pub async fn add_data_column_tag(
                 key.to_string(),
                 tag.trim().to_string(),
                 String::from("#AFA"),
-                &mut *acq,
+                &mut acq,
             )
             .await?;
 
-            schema.update(&mut *acq).await?;
+            schema.update(&mut acq).await?;
 
             Ok(Json(WrappingResponse::okay(api::SchemaTag {
                 id: *tag.id as i64,
@@ -1375,10 +1362,10 @@ pub async fn add_data_column_tag(
                 color: tag.color,
             })))
         } else {
-            return Err(eyre::eyre!("Schema field incorrect"))?;
+            Err(eyre::eyre!("Schema field incorrect"))?
         }
     } else {
-        return Err(eyre::eyre!("Schema field not found"))?;
+        Err(eyre::eyre!("Schema field not found"))?
     }
 }
 
@@ -1388,11 +1375,11 @@ pub async fn delete_data_column(
 ) -> Result<JsonResponse<&'static str>> {
     let mut acq = db.acquire().await?;
 
-    let addon = AddonModel::find_one_by_guid(addon_id, &mut *acq)
+    let addon = AddonModel::find_one_by_guid(addon_id, &mut acq)
         .await?
         .context("Addon not found")?;
 
-    let mut schema = SchemaModel::find_one_by_public_id(addon.id, &coll.id, &mut *acq)
+    let mut schema = SchemaModel::find_one_by_public_id(addon.id, &coll.id, &mut acq)
         .await?
         .context("Schema not found")?;
 
@@ -1404,7 +1391,7 @@ pub async fn delete_data_column(
         return Err(eyre::eyre!("Schema field not found"))?;
     }
 
-    schema.update(&mut *acq).await?;
+    schema.update(&mut acq).await?;
 
     Ok(Json(WrappingResponse::okay("ok")))
 }
@@ -1417,16 +1404,16 @@ pub async fn get_cms_row(
 ) -> Result<JsonResponse<api::CmsRowResponse>> {
     let mut acq = db.acquire().await?;
 
-    let addon = AddonModel::find_one_by_guid(addon_id, &mut *acq)
+    let addon = AddonModel::find_one_by_guid(addon_id, &mut acq)
         .await?
         .context("Addon not found")?;
 
-    let schema: SchemaModel = SchemaModel::find_one_by_public_id(addon.id, &coll.id, &mut *acq)
+    let schema: SchemaModel = SchemaModel::find_one_by_public_id(addon.id, &coll.id, &mut acq)
         .await?
         .context("Schema not found")?;
 
     // TODO: add schema.id to find
-    let Some(schema_data) = SchemaDataModel::find_by_public_id(row_id, &mut *acq).await? else {
+    let Some(schema_data) = SchemaDataModel::find_by_public_id(row_id, &mut acq).await? else {
         return Err(eyre::eyre!("Schema Data not found"))?;
     };
 
@@ -1457,7 +1444,7 @@ pub async fn get_cms_row(
 
     let fields = map_to_field_value(&schema, schema_data, None)?;
 
-    let mut files = Vec::new();
+    let files = Vec::new();
 
     // TODO: Send request to main program to return a list of uploads for the given UUIDs
 
@@ -1504,11 +1491,11 @@ pub async fn update_cms_row_cell(
 ) -> Result<JsonResponse<&'static str>> {
     let mut acq = db.acquire().await?;
 
-    let addon = AddonModel::find_one_by_guid(addon_id, &mut *acq)
+    let addon = AddonModel::find_one_by_guid(addon_id, &mut acq)
         .await?
         .context("Addon not found")?;
 
-    let schema = SchemaModel::find_one_by_public_id(addon.id, &coll.id, &mut *acq)
+    let schema = SchemaModel::find_one_by_public_id(addon.id, &coll.id, &mut acq)
         .await?
         .context("Schema not found")?;
 
@@ -1520,7 +1507,7 @@ pub async fn update_cms_row_cell(
     };
 
     let Some(schema_data) =
-        SchemaDataFieldUpdate::find_data_field_by_uuid(row_id, schema_field.field_type, &mut *acq)
+        SchemaDataFieldUpdate::find_data_field_by_uuid(row_id, schema_field.field_type, &mut acq)
             .await?
     else {
         return Err(eyre::eyre!("Schema Data not found"))?;
@@ -1532,7 +1519,7 @@ pub async fn update_cms_row_cell(
             value
                 .map(|v| schema_field.field_type.parse_value(v))
                 .transpose()?,
-            &mut *acq,
+            &mut acq,
         )
         .await?;
 
@@ -1545,16 +1532,16 @@ pub async fn create_new_data_row(
 ) -> Result<JsonResponse<api::CmsRowResponse>> {
     let mut acq = db.acquire().await?;
 
-    let addon = AddonModel::find_one_by_guid(addon_id, &mut *acq)
+    let addon = AddonModel::find_one_by_guid(addon_id, &mut acq)
         .await?
         .context("Addon not found")?;
 
-    let schema = SchemaModel::find_one_by_public_id(addon.id, &coll.id, &mut *acq)
+    let schema = SchemaModel::find_one_by_public_id(addon.id, &coll.id, &mut acq)
         .await?
         .context("Schema not found")?;
 
     let data_row = NewSchemaDataModel::new(addon.id, schema.id)
-        .insert(&mut *acq)
+        .insert(&mut acq)
         .await?;
 
     Ok(Json(WrappingResponse::okay(api::CmsRowResponse {
@@ -1573,11 +1560,11 @@ pub async fn import_data_rows(
 
     let mut acq = db.acquire().await?;
 
-    let addon = AddonModel::find_one_by_guid(addon_id, &mut *acq)
+    let addon = AddonModel::find_one_by_guid(addon_id, &mut acq)
         .await?
         .context("Addon not found")?;
 
-    let schema = SchemaModel::find_one_by_public_id(addon.id, &coll.id, &mut *acq)
+    let schema = SchemaModel::find_one_by_public_id(addon.id, &coll.id, &mut acq)
         .await?
         .context("Schema not found")?;
 
@@ -1683,19 +1670,19 @@ pub async fn duplicate_cms_row_cell(
 ) -> Result<JsonResponse<api::CmsRowResponse>> {
     let mut acq = db.acquire().await?;
 
-    let addon = AddonModel::find_one_by_guid(addon_id, &mut *acq)
+    let addon = AddonModel::find_one_by_guid(addon_id, &mut acq)
         .await?
         .context("Addon not found")?;
 
-    let schema = SchemaModel::find_one_by_public_id(addon.id, &coll.id, &mut *acq)
+    let schema = SchemaModel::find_one_by_public_id(addon.id, &coll.id, &mut acq)
         .await?
         .context("Schema not found")?;
 
-    let schema_data = SchemaDataModel::find_by_public_id(row_id, &mut *acq)
+    let schema_data = SchemaDataModel::find_by_public_id(row_id, &mut acq)
         .await?
         .context("Schema Data not found")?
         .into_new()
-        .insert(&mut *acq)
+        .insert(&mut acq)
         .await?;
 
     Ok(Json(WrappingResponse::okay(api::CmsRowResponse {

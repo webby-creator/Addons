@@ -94,12 +94,12 @@ impl AddonInstanceModel {
     //
 
     pub async fn find_by_uuid(uuid: Uuid, db: &mut SqliteConnection) -> Result<Option<Self>> {
-        Ok(sqlx::query_as(
+        sqlx::query_as(
             "SELECT id, public_id, addon_id, website_id, website_uuid, is_setup, settings, version, delete_reason, created_at, updated_at, deleted_at FROM addon_instance WHERE public_id = $1",
         )
         .bind(uuid)
         .fetch_optional(db)
-        .await?)
+        .await
     }
 
     pub async fn find_by_addon_website_id(
@@ -107,22 +107,22 @@ impl AddonInstanceModel {
         website_id: Uuid,
         db: &mut SqliteConnection,
     ) -> Result<Option<Self>> {
-        Ok(sqlx::query_as(
+        sqlx::query_as(
             "SELECT id, public_id, addon_id, website_id, website_uuid, is_setup, settings, version, delete_reason, created_at, updated_at, deleted_at FROM addon_instance WHERE addon_id = $1 AND website_uuid = $2",
         )
         .bind(addon_id)
         .bind(website_id)
         .fetch_optional(db)
-        .await?)
+        .await
     }
 
     pub async fn find_by_website_uuid(uuid: Uuid, db: &mut SqliteConnection) -> Result<Vec<Self>> {
-        Ok(sqlx::query_as(
+        sqlx::query_as(
             "SELECT id, public_id, addon_id, website_id, website_uuid, is_setup, settings, version, delete_reason, created_at, updated_at, deleted_at FROM addon_instance WHERE website_uuid = $1",
         )
         .bind(uuid)
         .fetch_all(db)
-        .await?)
+        .await
     }
 
     pub async fn delete_by_id(id: AddonInstanceId, db: &mut SqliteConnection) -> Result<u64> {

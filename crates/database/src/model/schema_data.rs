@@ -246,7 +246,7 @@ impl NewSchemaDataModel {
         )
         .bind(self.addon_id)
         .bind(self.schema_id)
-        .bind(&self.public_id)
+        .bind(self.public_id)
         .bind(&self.field_text)
         .bind(&self.field_number)
         .bind(&self.field_url)
@@ -548,8 +548,8 @@ impl SchemaDataModel {
                     LIMIT $2 OFFSET $3",
                 )
                 .bind(schema_id)
-                .bind(limit as i64)
-                .bind(offset as i64)
+                .bind(limit)
+                .bind(offset)
                 .fetch_all(db)
                 .await?)
             }
@@ -934,9 +934,9 @@ FROM schema_data");
         uuid: Uuid,
         db: &mut SqliteConnection,
     ) -> Result<Option<SchemaDataId>> {
-        Ok(sqlx::query_as::<_, (SchemaDataId,)>(&format!(
-            "SELECT id FROM schema_data WHERE public_id = $1"
-        ))
+        Ok(sqlx::query_as::<_, (SchemaDataId,)>(
+            &"SELECT id FROM schema_data WHERE public_id = $1".to_string(),
+        )
         .bind(uuid)
         .fetch_optional(db)
         .await?
@@ -987,7 +987,7 @@ impl SchemaDataFieldUpdate {
         ) -> Result<()> {
             if data_value.is_none() && field_value.is_none() {
                 // TODO: Change. We return an error if we're not updating anything.
-                return Err(eyre::eyre!("None"))?;
+                Err(eyre::eyre!("None"))?;
             } else if data_value.is_none() {
                 *data_value = Some(Default::default());
             }
@@ -998,7 +998,7 @@ impl SchemaDataFieldUpdate {
                 if let Some(field_value) = func(field_value)? {
                     val.insert(field_name, field_value);
                 } else {
-                    return Err(eyre::eyre!("Incorrect Field Value Received"))?;
+                    Err(eyre::eyre!("Incorrect Field Value Received"))?;
                 }
             } else {
                 val.remove(&field_name);

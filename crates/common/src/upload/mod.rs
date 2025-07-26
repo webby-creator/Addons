@@ -40,7 +40,7 @@ static NEXT_FILE_INDEX: AtomicUsize = AtomicUsize::new(0);
 pub fn get_full_file_path(store_path: &str) -> PathBuf {
     let mut path = PathBuf::from("/addon_member_upload");
 
-    path.push(&store_path);
+    path.push(store_path);
 
     path
 }
@@ -48,7 +48,7 @@ pub fn get_full_file_path(store_path: &str) -> PathBuf {
 pub fn get_thumb_file_path(store_path: &str) -> PathBuf {
     let mut path = PathBuf::from("/addon_member_upload_thumb");
 
-    path.push(&store_path);
+    path.push(store_path);
 
     path
 }
@@ -62,10 +62,7 @@ pub fn get_next_uploading_file_path() -> String {
 
 // exiftool -j PATH
 pub async fn exif_file(path: &str) -> Result<serde_json::Value> {
-    let output = Command::new("exiftool")
-        .args(&["-j", path])
-        .output()
-        .await?;
+    let output = Command::new("exiftool").args(["-j", path]).output().await?;
 
     let stdout = String::from_utf8(output.stdout)?;
 
@@ -462,7 +459,7 @@ pub async fn read_and_upload_data(
         Err(e) => {
             error!("Failed to upload file: {e}");
 
-            Err(eyre::eyre!("Failed to upload file: {e}").into())
+            Err(eyre::eyre!("Failed to upload file: {e}"))
         }
     }
 }

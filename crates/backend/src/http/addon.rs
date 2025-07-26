@@ -1,13 +1,9 @@
-use std::{borrow::Cow, collections::HashMap};
-
 use addon_common::{
     InstallResponse, MemberPartial, MemberUuid, RegisterNewJson, WebsitePartial, WebsiteUuid,
 };
 use api::{ListResponse, WrappingResponse};
 use axum::{
-    body::Body,
     extract::{self, Path, State},
-    http::HeaderValue,
     routing::{get, post},
     Json, Router,
 };
@@ -21,18 +17,14 @@ use database::{
     VisslCodeAddonPanelModel, WidgetModel,
 };
 use eyre::{Context, ContextCompat};
-use futures::TryStreamExt;
 use global_common::{
-    id::{AddonUuid, AddonWidgetPanelPublicId, AddonWidgetPublicId, WebsitePublicId},
+    id::{AddonUuid, AddonWidgetPanelPublicId, AddonWidgetPublicId},
     response::AddonInstallResponse,
     Either,
 };
-use hyper::{header::CONTENT_TYPE, HeaderMap, Method, StatusCode};
 use lazy_static::lazy_static;
 use local_common::{DashboardPageInfo, MemberModel, WebsiteModel};
-use reqwest::RequestBuilder;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::{Connection, SqliteConnection, SqlitePool};
 use storage::{
@@ -100,7 +92,7 @@ pub async fn publish_addon(
     // TODO: When I implement importing local files, I'd need to figure out a way to cache it.
     // TODO: Get Addon Specific Settings from Addon Server
 
-    let mut addon = AddonModel::find_one_by_guid(*addon_id, &mut *acq)
+    let mut addon = AddonModel::find_one_by_guid(*addon_id, &mut acq)
         .await?
         .context("Addon not found")?;
 
@@ -127,13 +119,13 @@ pub async fn publish_addon(
 
     let addon_pages = {
         // TODO: Combine into a single query
-        let list = AddonTemplatePageModel::find_by_addon_id(addon.id, &mut *acq).await?;
+        let list = AddonTemplatePageModel::find_by_addon_id(addon.id, &mut acq).await?;
 
         let mut items = Vec::new();
 
         for model in list {
             let Some(content) =
-                AddonTemplatePageContentModel::find_one_by_page_id(model.id, &mut *acq).await?
+                AddonTemplatePageContentModel::find_one_by_page_id(model.id, &mut acq).await?
             else {
                 panic!("Unable to find Page Content");
             };
@@ -333,7 +325,7 @@ pub async fn website_addon_install(
 ) -> Result<JsonResponse<AddonInstallResponse>> {
     let mut acq = db.acquire().await?;
 
-    let addon = AddonModel::find_one_by_guid(*addon_uuid, &mut *acq)
+    let addon = AddonModel::find_one_by_guid(*addon_uuid, &mut acq)
         .await?
         .context("Addon not found")?;
 
@@ -508,7 +500,7 @@ async fn get_addon_overview(
 ) -> Result<JsonResponse<serde_json::Value>> {
     let mut acq = db.acquire().await?;
 
-    let Some(addon) = AddonModel::find_one_by_guid(guid, &mut *acq).await? else {
+    let Some(addon) = AddonModel::find_one_by_guid(guid, &mut acq).await? else {
         return Err(eyre::eyre!("Addon not found"))?;
     };
 
@@ -561,7 +553,7 @@ pub async fn create_addon_item(
 ) -> Result<JsonResponse<&'static str>> {
     let mut acq = db.acquire().await?;
 
-    let Some(addon) = AddonModel::find_one_by_guid(*addon_id, &mut *acq).await? else {
+    let Some(addon) = AddonModel::find_one_by_guid(*addon_id, &mut acq).await? else {
         return Err(eyre::eyre!("Addon not found"))?;
     };
 
@@ -598,7 +590,7 @@ pub async fn create_addon_item(
         let page = DisplayStore::empty_template();
         let rand_num = rand::random::<u8>();
 
-        let count = AddonTemplatePageModel::count_by_addon_id(addon.id, &mut *acq).await?;
+        let count = AddonTemplatePageModel::count_by_addon_id(addon.id, &mut acq).await?;
 
         acq.transaction(|txn| {
             Box::pin(async move {
@@ -709,7 +701,7 @@ pub async fn create_website_panel(
 ) -> Result<JsonResponse<AddonWidgetPanelContentModel>> {
     let mut acq = db.acquire().await?;
 
-    let Some(addon) = AddonModel::find_one_by_guid(*addon_id, &mut *acq).await? else {
+    let Some(addon) = AddonModel::find_one_by_guid(*addon_id, &mut acq).await? else {
         return Err(eyre::eyre!("Addon not found"))?;
     };
 

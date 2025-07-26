@@ -57,12 +57,12 @@ async fn duplicate_website_addons(
 ) -> Result<JsonResponse<&'static str>> {
     let mut acq = db.acquire().await?;
 
-    let instances = AddonInstanceModel::find_by_website_uuid(old_website, &mut *acq).await?;
+    let instances = AddonInstanceModel::find_by_website_uuid(old_website, &mut acq).await?;
 
     for inst in instances {
         // TODO: Duplicate of install above
 
-        let addon = AddonModel::find_one_by_id(inst.addon_id, &mut *acq)
+        let addon = AddonModel::find_one_by_id(inst.addon_id, &mut acq)
             .await?
             .context("Addon not found")?;
 
@@ -75,7 +75,7 @@ async fn duplicate_website_addons(
                 // TODO: Set to version we're duplicating
                 version: String::from("latest"),
             }
-            .insert(&mut *acq)
+            .insert(&mut acq)
             .await?;
 
             // 2. Send install request
@@ -106,7 +106,7 @@ async fn duplicate_website_addons(
                 match resp {
                     WrappingResponse::Resp(InstallResponse::Complete) => {
                         inst.is_setup = true;
-                        inst.update(&mut *acq).await?;
+                        inst.update(&mut acq).await?;
                     }
 
                     WrappingResponse::Resp(InstallResponse::Redirect(_url)) => {
@@ -132,12 +132,12 @@ async fn get_editor_widget_list(
 
     let mut items = Vec::new();
 
-    for instance in AddonInstanceModel::find_by_website_uuid(*website_uuid, &mut *acq).await? {
-        let addon = AddonModel::find_one_by_id(instance.addon_id, &mut *acq)
+    for instance in AddonInstanceModel::find_by_website_uuid(*website_uuid, &mut acq).await? {
+        let addon = AddonModel::find_one_by_id(instance.addon_id, &mut acq)
             .await?
             .context("Addon not found")?;
 
-        let widget_refs = WidgetModel::find_by_addon_id(instance.addon_id, &mut *acq).await?;
+        let widget_refs = WidgetModel::find_by_addon_id(instance.addon_id, &mut acq).await?;
 
         items.push(serde_json::json!({
             "instance": instance.public_id,
@@ -154,7 +154,7 @@ async fn get_editor_widget_data(
     Path(website_uuid): Path<WebsiteUuid>,
     State(db): State<SqlitePool>,
 ) -> Result<JsonResponse<serde_json::Value>> {
-    let mut acq = db.acquire().await?;
+    let acq = db.acquire().await?;
 
     // let using_addons = AddonInstanceModel::find_by_website_id(website_uuid).await?;
 
@@ -248,12 +248,12 @@ async fn get_website_addon_widgets(
 
     let mut items = Vec::new();
 
-    for instance in AddonInstanceModel::find_by_website_uuid(*website_id, &mut *acq).await? {
-        let addon = AddonModel::find_one_by_id(instance.addon_id, &mut *acq)
+    for instance in AddonInstanceModel::find_by_website_uuid(*website_id, &mut acq).await? {
+        let addon = AddonModel::find_one_by_id(instance.addon_id, &mut acq)
             .await?
             .context("Addon not found")?;
 
-        let widget_refs = WidgetModel::find_by_addon_id(instance.addon_id, &mut *acq).await?;
+        let widget_refs = WidgetModel::find_by_addon_id(instance.addon_id, &mut acq).await?;
 
         let mut widget_info = Vec::new();
 

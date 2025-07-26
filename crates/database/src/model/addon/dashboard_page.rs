@@ -22,7 +22,7 @@ impl AddonDashboardPage {
         .bind(&self.type_of)
         .bind(&self.name)
         .bind(&self.path)
-        .bind(&self.is_sidebar_visible)
+        .bind(self.is_sidebar_visible)
         .execute(db)
         .await?;
 
@@ -30,12 +30,12 @@ impl AddonDashboardPage {
     }
 
     pub async fn find_by_id(id: AddonId, db: &mut SqliteConnection) -> Result<Vec<Self>> {
-        Ok(sqlx::query_as(
+        sqlx::query_as(
             "SELECT addon_id, type, name, path, is_sidebar_visible FROM addon_dashboard_page WHERE addon_id = $1",
         )
         .bind(id)
         .fetch_all(db)
-        .await?)
+        .await
     }
 
     pub async fn delete_by_id(id: AddonId, db: &mut SqliteConnection) -> Result<u64> {
@@ -48,12 +48,12 @@ impl AddonDashboardPage {
     }
 }
 
-impl Into<DashboardPageInfo> for AddonDashboardPage {
-    fn into(self) -> DashboardPageInfo {
+impl From<AddonDashboardPage> for DashboardPageInfo {
+    fn from(val: AddonDashboardPage) -> Self {
         DashboardPageInfo {
-            type_of: self.type_of,
-            name: self.name,
-            path: self.path,
+            type_of: val.type_of,
+            name: val.name,
+            path: val.path,
         }
     }
 }

@@ -17,7 +17,7 @@ impl WidgetModel {
         sqlx::query("INSERT INTO ref_widget (addon_id, widget_id, public_id) VALUES ($1, $2, $3)")
             .bind(self.addon_id)
             .bind(self.widget_id)
-            .bind(&self.public_id)
+            .bind(self.public_id)
             .execute(db)
             .await?;
 

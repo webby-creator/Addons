@@ -51,7 +51,7 @@ impl SchemaDataTagModel {
                     }
                 }
 
-                return Err(e)?;
+                Err(e)?
             }
         }
     }

@@ -1,5 +1,5 @@
-use local_common::{MemberId, MediaId};
 use eyre::Result;
+use local_common::{MediaId, MemberId};
 use sqlx::{FromRow, SqliteConnection};
 use time::OffsetDateTime;
 
@@ -120,12 +120,12 @@ impl MediaUploadModel {
         )
         .bind(self.id)
         .bind(&self.file_name)
-        .bind(&self.file_size)
+        .bind(self.file_size)
         .bind(&self.file_type)
-        .bind(&self.media_width)
-        .bind(&self.media_height)
-        .bind(&self.media_duration)
-        .bind(&self.has_thumbnail)
+        .bind(self.media_width)
+        .bind(self.media_height)
+        .bind(self.media_duration)
+        .bind(self.has_thumbnail)
         .bind(&self.hash)
         .execute(db)
         .await?;

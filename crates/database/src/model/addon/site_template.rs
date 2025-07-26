@@ -79,7 +79,7 @@ impl NewAddonTemplatePageModel {
             "INSERT INTO template_page (addon_id, public_id, path, display_name, object_ids, settings, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
         )
         .bind(self.addon_id)
-        .bind(&self.public_id)
+        .bind(self.public_id)
         .bind(&self.path)
         .bind(&self.display_name)
         .bind(&self.object_ids)
@@ -108,7 +108,7 @@ impl AddonTemplatePageModel {
             WHERE id = $1"#,
         )
         .bind(self.id)
-        .bind(&self.public_id)
+        .bind(self.public_id)
         .bind(&self.path)
         .bind(&self.display_name)
         .bind(&self.settings)
@@ -138,7 +138,7 @@ impl AddonTemplatePageModel {
 
         Ok(object_ids_vec
             .into_iter()
-            .flat_map(|x| x.0 .0.into_iter().map(|v| ObjectId::from_specific(v)))
+            .flat_map(|x| x.0 .0.into_iter().map(ObjectId::from_specific))
             .collect())
     }
 
