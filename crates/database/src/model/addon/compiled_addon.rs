@@ -118,11 +118,11 @@ impl AddonCompiledModel {
     ) -> Result<Vec<Self>> {
         Ok(
             sqlx::query_as(
-                "SELECT pk, id, addon_id, settings, type, version, created_at, updated_at, deleted_at FROM addon_compiled WHERE addon_id = $1 ORDER BY created_at DESC OFFSET $2 LIMIT $3",
+                "SELECT pk, id, addon_id, settings, type, version, created_at, updated_at, deleted_at FROM addon_compiled WHERE addon_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3",
             )
             .bind(uuid)
-            .bind((offset * limit) as i64)
             .bind(limit as i64)
+            .bind((offset * limit) as i64)
             .fetch_all(db)
             .await?,
         )

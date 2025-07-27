@@ -7,8 +7,6 @@ use sqlx::{types::Json, FromRow, SqliteConnection};
 use storage::{DisplayStore, PageStoreV0, CURRENT_STORE_VERSION};
 use time::OffsetDateTime;
 
-use crate::Binary;
-
 #[derive(Debug, Clone, Serialize, FromRow)]
 #[serde(rename_all = "camelCase")]
 pub struct NewAddonWidgetContent {
@@ -29,7 +27,8 @@ pub struct AddonWidgetContent {
 
     pub addon_id: AddonId,
 
-    pub data: Binary<DisplayStore>,
+    // NOTE: In the SQL table its' referred to as a Blob
+    pub data: Json<DisplayStore>,
     pub version: i32,
 
     pub title: Option<String>,
@@ -64,7 +63,7 @@ impl NewAddonWidgetContent {
     pub async fn insert(self, db: &mut SqliteConnection) -> Result<AddonWidgetContent> {
         let id = AddonWidgetPublicId::new();
         let now = OffsetDateTime::now_utc();
-        let data = Binary(self.data);
+        let data = Json(self.data);
 
         let res = sqlx::query(
             "INSERT INTO addon_widget_content (id, addon_id, data, version, title, description, thumbnail, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
@@ -205,10 +204,10 @@ where
     AddonWidgetPublicId: ::sqlx::types::Type<R::Database>,
     AddonId: ::sqlx::decode::Decode<'a, R::Database>,
     AddonId: ::sqlx::types::Type<R::Database>,
-    Binary<DisplayStore>: ::sqlx::decode::Decode<'a, R::Database>,
-    Binary<DisplayStore>: ::sqlx::types::Type<R::Database>,
-    Binary<PageStoreV0>: ::sqlx::decode::Decode<'a, R::Database>,
-    Binary<PageStoreV0>: ::sqlx::types::Type<R::Database>,
+    Json<DisplayStore>: ::sqlx::decode::Decode<'a, R::Database>,
+    Json<DisplayStore>: ::sqlx::types::Type<R::Database>,
+    Json<PageStoreV0>: ::sqlx::decode::Decode<'a, R::Database>,
+    Json<PageStoreV0>: ::sqlx::types::Type<R::Database>,
     Json<WidgetSettings>: ::sqlx::decode::Decode<'a, R::Database>,
     Json<WidgetSettings>: ::sqlx::types::Type<R::Database>,
     i32: ::sqlx::decode::Decode<'a, R::Database>,
@@ -231,8 +230,8 @@ where
         let updated_at = row.try_get("updated_at")?;
 
         let data = match version {
-            0 => Binary(row.try_get::<Binary<PageStoreV0>, _>("data")?.0.upgrade()),
-            1 => row.try_get::<Binary<DisplayStore>, _>("data")?,
+            0 => Json(row.try_get::<Json<PageStoreV0>, _>("data")?.0.upgrade()),
+            1 => row.try_get::<Json<DisplayStore>, _>("data")?,
             _ => unimplemented!(),
         };
 
