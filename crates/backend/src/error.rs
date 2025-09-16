@@ -1,6 +1,6 @@
-use addon_common::WrappingResponse;
 use axum::response::{IntoResponse, Json, Response};
 use hyper::StatusCode;
+use webby_addon_common::WrappingResponse;
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 

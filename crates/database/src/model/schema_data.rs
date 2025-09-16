@@ -4,7 +4,7 @@ use std::{
 };
 
 use eyre::{ContextCompat, Result};
-use global_common::{
+use webby_global_common::{
     filter::{Filter, FilterConditionType, FilterValue},
     schema::{SchematicFieldKey, SchematicFieldType, SchematicFieldValue},
     value::Number,

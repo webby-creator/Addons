@@ -1,5 +1,5 @@
 use eyre::Result;
-use global_common::schema::{SchemaFieldMap, SchemaView, SchematicPermissions};
+use webby_global_common::schema::{SchemaFieldMap, SchemaView, SchematicPermissions};
 use local_common::{AddonId, SchemaId};
 use serde::{Deserialize, Serialize};
 use sqlx::{types::Json, FromRow, SqliteConnection};

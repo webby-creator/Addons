@@ -3,8 +3,6 @@ use std::{
     net::SocketAddr,
 };
 
-use addon_common::{JsonListResponse, JsonResponse, ListResponse, WebsiteUuid, WrappingResponse};
-use api::{schema::SchematicField, CmsCreateResponse};
 use axum::{
     body::Body,
     extract::{self, multipart::Field, Json, Path, State},
@@ -21,17 +19,6 @@ use database::{
 };
 use eyre::{Context, ContextCompat};
 use futures::TryStreamExt;
-use global_common::{
-    id::{AddonInstanceUuid, SchemaDataPublicId},
-    request::{
-        CmsCreate, CmsCreateDataColumn, CmsCreateDataColumnTag, CmsQuery, CmsUpdate,
-        CmsUpdateDataCell,
-    },
-    response::{BasicCmsInfo, CmsResponse, CmsRowResponse, PublicSchema, SchemaTag},
-    schema::{SchematicFieldKey, SchematicFieldType},
-    uuid::CollectionName,
-    value::SimpleValue,
-};
 use hyper::header::CONTENT_TYPE;
 use lazy_static::lazy_static;
 use local_common::{
@@ -48,10 +35,25 @@ use serde::Deserialize;
 use serde_qs::axum::QsQuery;
 use sha2::{Digest, Sha256};
 use sqlx::{Connection, Pool, Sqlite, SqliteConnection, SqlitePool};
-use storage::DisplayStore;
 use tokio::{fs::OpenOptions, io::AsyncWriteExt, net::TcpListener};
 use tower_http::trace::TraceLayer;
 use uuid::Uuid;
+use webby_addon_common::{
+    JsonListResponse, JsonResponse, ListResponse, WebsiteUuid, WrappingResponse,
+};
+use webby_api::{schema::SchematicField, CmsCreateResponse};
+use webby_global_common::{
+    id::{AddonInstanceUuid, SchemaDataPublicId},
+    request::{
+        CmsCreate, CmsCreateDataColumn, CmsCreateDataColumnTag, CmsQuery, CmsUpdate,
+        CmsUpdateDataCell,
+    },
+    response::{BasicCmsInfo, CmsResponse, CmsRowResponse, PublicSchema, SchemaTag},
+    schema::{SchematicFieldKey, SchematicFieldType},
+    uuid::CollectionName,
+    value::SimpleValue,
+};
+use webby_storage::DisplayStore;
 
 use crate::Result;
 
@@ -764,7 +766,7 @@ pub struct AddonPageWithDataItem {
     pub path: String,
     pub display_name: String,
 
-    pub settings: api::WebsitePageSettings,
+    pub settings: webby_api::WebsitePageSettings,
 
     pub content: DisplayStore,
     pub version: i32,
@@ -1329,7 +1331,7 @@ pub async fn add_data_column_tag(
     State(db): State<SqlitePool>,
 
     Json(CmsCreateDataColumnTag { tag }): Json<CmsCreateDataColumnTag>,
-) -> Result<JsonResponse<api::SchemaTag>> {
+) -> Result<JsonResponse<webby_api::SchemaTag>> {
     let mut acq = db.acquire().await?;
 
     let addon = AddonModel::find_one_by_guid(addon_id, &mut acq)
@@ -1355,7 +1357,7 @@ pub async fn add_data_column_tag(
 
             schema.update(&mut acq).await?;
 
-            Ok(Json(WrappingResponse::okay(api::SchemaTag {
+            Ok(Json(WrappingResponse::okay(webby_api::SchemaTag {
                 id: *tag.id as i64,
                 row_id: tag.row_id,
                 name: tag.name,
@@ -1401,7 +1403,7 @@ pub async fn delete_data_column(
 pub async fn get_cms_row(
     Path((addon_id, coll, row_id)): Path<(Uuid, CollectionName, Uuid)>,
     State(db): State<SqlitePool>,
-) -> Result<JsonResponse<api::CmsRowResponse>> {
+) -> Result<JsonResponse<webby_api::CmsRowResponse>> {
     let mut acq = db.acquire().await?;
 
     let addon = AddonModel::find_one_by_guid(addon_id, &mut acq)
@@ -1477,7 +1479,7 @@ pub async fn get_cms_row(
     //     }
     // }
 
-    Ok(Json(WrappingResponse::okay(api::CmsRowResponse {
+    Ok(Json(WrappingResponse::okay(webby_api::CmsRowResponse {
         files,
         fields,
     })))
@@ -1529,7 +1531,7 @@ pub async fn update_cms_row_cell(
 pub async fn create_new_data_row(
     Path((addon_id, coll)): Path<(Uuid, CollectionName)>,
     State(db): State<SqlitePool>,
-) -> Result<JsonResponse<api::CmsRowResponse>> {
+) -> Result<JsonResponse<webby_api::CmsRowResponse>> {
     let mut acq = db.acquire().await?;
 
     let addon = AddonModel::find_one_by_guid(addon_id, &mut acq)
@@ -1544,7 +1546,7 @@ pub async fn create_new_data_row(
         .insert(&mut acq)
         .await?;
 
-    Ok(Json(WrappingResponse::okay(api::CmsRowResponse {
+    Ok(Json(WrappingResponse::okay(webby_api::CmsRowResponse {
         files: Vec::new(),
         fields: map_to_field_value(&schema, data_row, None)?,
     })))
@@ -1667,7 +1669,7 @@ async fn insert_rows(
 pub async fn duplicate_cms_row_cell(
     Path((addon_id, coll, row_id)): Path<(Uuid, CollectionName, Uuid)>,
     State(db): State<SqlitePool>,
-) -> Result<JsonResponse<api::CmsRowResponse>> {
+) -> Result<JsonResponse<webby_api::CmsRowResponse>> {
     let mut acq = db.acquire().await?;
 
     let addon = AddonModel::find_one_by_guid(addon_id, &mut acq)
@@ -1685,7 +1687,7 @@ pub async fn duplicate_cms_row_cell(
         .insert(&mut acq)
         .await?;
 
-    Ok(Json(WrappingResponse::okay(api::CmsRowResponse {
+    Ok(Json(WrappingResponse::okay(webby_api::CmsRowResponse {
         files: Vec::new(),
         fields: map_to_field_value(&schema, schema_data, None)?,
     })))

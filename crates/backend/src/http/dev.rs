@@ -1,4 +1,4 @@
-use addon_common::{JsonResponse, WrappingResponse};
+use webby_addon_common::{JsonResponse, WrappingResponse};
 use axum::{
     extract::{Path, State},
     routing::{get, post},
@@ -11,7 +11,7 @@ use database::{
 use local_common::DashboardPageInfo;
 use serde::Deserialize;
 use sqlx::{Connection, SqlitePool};
-use storage::DisplayStore;
+use webby_storage::DisplayStore;
 use uuid::Uuid;
 
 use crate::Result;
@@ -40,7 +40,7 @@ async fn get_addon_overview(
     let schemas = SchemaModel::find_by_addon_id(addon.id, &mut acq)
         .await?
         .into_iter()
-        .map(|schema| api::PublicSchema {
+        .map(|schema| webby_api::PublicSchema {
             schema_id: schema.name,
             namespace: Some(format!("@{}", addon.name_id)),
             primary_field: schema.primary_field,

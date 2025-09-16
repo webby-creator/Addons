@@ -1,11 +1,11 @@
-use api::WebsitePageSettings;
 use eyre::Result;
-use global_common::object_id::ObjectId;
 use local_common::{AddonId, AddonTemplatePageId};
 use serde::Serialize;
 use sqlx::{types::Json, FromRow, SqliteConnection};
 use time::OffsetDateTime;
 use uuid::Uuid;
+use webby_api::WebsitePageSettings;
+use webby_global_common::object_id::ObjectId;
 
 pub struct NewAddonTemplatePageModel {
     pub addon_id: AddonId,

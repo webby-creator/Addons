@@ -1,5 +1,5 @@
 use eyre::Result;
-use global_common::id::AddonWidgetPublicId;
+use webby_global_common::id::AddonWidgetPublicId;
 use local_common::{AddonId, AddonWidgetId};
 use serde::Serialize;
 use sqlx::{FromRow, SqliteConnection};

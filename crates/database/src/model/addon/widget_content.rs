@@ -1,10 +1,10 @@
-use api::WidgetSettings;
+use webby_api::WidgetSettings;
 use eyre::Result;
-use global_common::id::AddonWidgetPublicId;
+use webby_global_common::id::AddonWidgetPublicId;
 use local_common::{AddonId, AddonWidgetId};
 use serde::Serialize;
 use sqlx::{types::Json, FromRow, SqliteConnection};
-use storage::{DisplayStore, PageStoreV0, CURRENT_STORE_VERSION};
+use webby_storage::{DisplayStore, PageStoreV0, CURRENT_STORE_VERSION};
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone, Serialize, FromRow)]

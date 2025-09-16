@@ -1,4 +1,3 @@
-use addon_common::{JsonResponse, WrappingResponse};
 use axum::{
     extract::{Path, State},
     routing::get,
@@ -9,12 +8,13 @@ use database::{
     NewVisslCodeAddonPanelModel, VisslCodeAddonModel, VisslCodeAddonPanelModel,
 };
 use eyre::ContextCompat;
-use global_common::{
+use sqlx::SqlitePool;
+use webby_addon_common::{JsonResponse, WrappingResponse};
+use webby_global_common::{
     id::{AddonUuid, AddonWidgetPanelPublicId, AddonWidgetPublicId},
     Either,
 };
-use scripting::json::VisslContent;
-use sqlx::SqlitePool;
+use webby_scripting::json::VisslContent;
 
 use crate::Result;
 
@@ -62,7 +62,7 @@ async fn compile_widget_script(
     {
         match found.take_data() {
             Either::Left(_) => Ok(Json(None)),
-            Either::Right(script) => Ok(Json(Some(scripting::swc::compile(script)?))),
+            Either::Right(script) => Ok(Json(Some(webby_scripting::swc::compile(script)?))),
         }
     } else {
         Ok(Json(None))
@@ -208,7 +208,7 @@ async fn compile_widget_panel_script(
     {
         match found.take_data() {
             Either::Left(_) => Ok(Json(None)),
-            Either::Right(script) => Ok(Json(Some(scripting::swc::compile(script)?))),
+            Either::Right(script) => Ok(Json(Some(webby_scripting::swc::compile(script)?))),
         }
     } else {
         Ok(Json(None))

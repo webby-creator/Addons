@@ -1,5 +1,4 @@
 use eyre::Result;
-use global_common::id::AddonCompiledPublicId;
 use local_common::{AddonCompiledId, AddonId};
 use serde::Serialize;
 use sqlx::{
@@ -10,8 +9,9 @@ use sqlx::{
     types::Json,
     Decode, Encode, FromRow, Sqlite, SqliteConnection, Type,
 };
-use storage::widget::CompiledAddonSettings;
 use time::OffsetDateTime;
+use webby_global_common::id::AddonCompiledPublicId;
+use webby_storage::widget::CompiledAddonSettings;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]

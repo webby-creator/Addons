@@ -1,7 +1,4 @@
-use addon_common::{
-    InstallResponse, JsonListResponse, JsonResponse, WebsiteUuid, WrappingResponse,
-};
-use api::ListResponse;
+use webby_api::ListResponse;
 use axum::{
     extract::{Path, State},
     routing::{get, post},
@@ -12,12 +9,15 @@ use database::{
     NewAddonInstanceModel, WidgetModel,
 };
 use eyre::ContextCompat;
-use global_common::id::{AddonWidgetPublicId, WebsitePublicId};
 use local_common::{MemberModel, WebsiteId, WebsiteModel};
 use serde::Deserialize;
 use sqlx::SqlitePool;
-use storage::{widget::CompiledWidgetSettings, DisplayStore};
 use uuid::Uuid;
+use webby_addon_common::{
+    InstallResponse, JsonListResponse, JsonResponse, WebsiteUuid, WrappingResponse,
+};
+use webby_global_common::id::{AddonWidgetPublicId, WebsitePublicId};
+use webby_storage::{widget::CompiledWidgetSettings, DisplayStore};
 
 use crate::Result;
 
@@ -167,8 +167,9 @@ async fn get_editor_widget_data(
     ]))))
 }
 
+// TODO: Move
 #[derive(serde::Serialize)]
-pub struct WebsiteAddonWidgetInfo {
+pub struct CompiledAddonWidgetInfo {
     pub data: DisplayStore,
     pub script: Option<String>,
     pub settings: CompiledWidgetSettings,
@@ -179,7 +180,7 @@ async fn get_website_addon_widget(
     State(db): State<SqlitePool>,
 
     Path((website_id, widget_id)): Path<(WebsitePublicId, AddonWidgetPublicId)>,
-) -> Result<JsonResponse<Option<WebsiteAddonWidgetInfo>>> {
+) -> Result<JsonResponse<Option<CompiledAddonWidgetInfo>>> {
     let mut acq = db.acquire().await?;
 
     let widget = AddonWidgetContent::find_one_by_public_id(widget_id, &mut acq)
@@ -222,18 +223,20 @@ async fn get_website_addon_widget(
 
         for panel in &mut widget_comp.settings.0.panels {
             if let Some(script) = panel.script.as_mut() {
-                *script = scripting::swc::compile(script.clone())?;
+                *script = webby_scripting::swc::compile(script.clone())?;
             }
         }
 
-        return Ok(Json(WrappingResponse::okay(Some(WebsiteAddonWidgetInfo {
-            data: widget_comp.data.0,
-            script: widget_comp
-                .script
-                .map(scripting::swc::compile)
-                .transpose()?,
-            settings: widget_comp.settings.0,
-        }))));
+        return Ok(Json(WrappingResponse::okay(Some(
+            CompiledAddonWidgetInfo {
+                data: widget_comp.data.0,
+                script: widget_comp
+                    .script
+                    .map(webby_scripting::swc::compile)
+                    .transpose()?,
+                settings: widget_comp.settings.0,
+            },
+        ))));
     }
 
     Ok(Json(WrappingResponse::okay(None)))

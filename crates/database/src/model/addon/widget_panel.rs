@@ -1,11 +1,11 @@
-use api::WidgetPanelSettings;
 use eyre::Result;
-use global_common::id::{AddonWidgetPanelPublicId, AddonWidgetPublicId};
 use local_common::{AddonId, AddonWidgetId, AddonWidgetPanelId};
 use serde::Serialize;
 use sqlx::{types::Json, FromRow, SqliteConnection};
-use storage::{WidgetPanelContent, CURRENT_PANEL_VERSION};
 use time::OffsetDateTime;
+use webby_api::WidgetPanelSettings;
+use webby_global_common::id::{AddonWidgetPanelPublicId, AddonWidgetPublicId};
+use webby_storage::{WidgetPanelContent, CURRENT_PANEL_VERSION};
 
 use crate::Binary;
 

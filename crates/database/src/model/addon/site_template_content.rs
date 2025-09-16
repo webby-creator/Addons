@@ -1,7 +1,7 @@
 use eyre::Result;
 use local_common::AddonTemplatePageId;
 use sqlx::{FromRow, SqliteConnection};
-use storage::{DisplayStore, PageStoreV0, CURRENT_STORE_VERSION};
+use webby_storage::{DisplayStore, PageStoreV0, CURRENT_STORE_VERSION};
 use time::OffsetDateTime;
 
 use crate::Blob;

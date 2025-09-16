@@ -4,12 +4,12 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-scripting = { git = "https://github.com/webby-creator/Scripting", version = "0.1.0" }
-api = { path = "../../../website/crates/api" }
-storage = { path = "../../../website/crates/storage" }
+webby-scripting = { version = "0.1.1", registry = "tasty" }
+webby-api = { version = "0.1.0", registry = "tasty" }
+webby-storage = { version = "0.1.0", registry = "tasty" }
 
-global-common = { workspace = true }
-addon-common = { path = "../../../addon-common" }
+webby-global-common = { workspace = true }
+webby-addon-common = { version = "0.1.0", registry = "tasty" }
 database = { path = "../database" }
 local-common = { path = "../common" }
 

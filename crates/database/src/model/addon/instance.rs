@@ -1,4 +1,4 @@
-use global_common::id::AddonInstanceUuid;
+use webby_global_common::id::AddonInstanceUuid;
 /// Instances of addons used on websites
 use local_common::{AddonId, AddonInstanceId, WebsiteId};
 use sqlx::{types::Json, FromRow, Result, SqliteConnection};

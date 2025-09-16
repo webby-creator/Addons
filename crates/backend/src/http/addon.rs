@@ -1,23 +1,23 @@
-use addon_common::{
+use webby_addon_common::{
     InstallResponse, MemberPartial, MemberUuid, RegisterNewJson, WebsitePartial, WebsiteUuid,
 };
-use api::{ListResponse, WrappingResponse};
+use webby_api::{ListResponse, WrappingResponse};
 use axum::{
     extract::{self, Path, State},
     routing::{get, post},
     Json, Router,
 };
 use database::{
-    AddonCompiledModel, AddonCompiledPage, AddonDashboardPage, AddonInstanceModel, AddonModel,
-    AddonPermissionModel, AddonTemplatePageContentModel, AddonTemplatePageModel,
-    AddonWidgetContent, AddonWidgetNoDataModel, AddonWidgetPanelContentModel,
-    AddonWidgetPanelNoDataModel, NewAddonCompiledModel, NewAddonCompiledPage,
-    NewAddonCompiledWidget, NewAddonInstanceModel, NewAddonTemplatePageModel,
+    AddonCompiledModel, AddonCompiledPage, AddonCompiledWidget, AddonDashboardPage,
+    AddonInstanceModel, AddonModel, AddonPermissionModel, AddonTemplatePageContentModel,
+    AddonTemplatePageModel, AddonWidgetContent, AddonWidgetNoDataModel,
+    AddonWidgetPanelContentModel, AddonWidgetPanelNoDataModel, NewAddonCompiledModel,
+    NewAddonCompiledPage, NewAddonCompiledWidget, NewAddonInstanceModel, NewAddonTemplatePageModel,
     NewAddonWidgetContent, NewAddonWidgetPanelContentModel, SchemaModel, VisslCodeAddonModel,
     VisslCodeAddonPanelModel, WidgetModel,
 };
-use eyre::{Context, ContextCompat};
-use global_common::{
+use eyre::ContextCompat;
+use webby_global_common::{
     id::{AddonUuid, AddonWidgetPanelPublicId, AddonWidgetPublicId},
     response::AddonInstallResponse,
     Either,
@@ -27,13 +27,16 @@ use local_common::{DashboardPageInfo, MemberModel, WebsiteModel};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{Connection, SqliteConnection, SqlitePool};
-use storage::{
+use webby_storage::{
     widget::CompiledWidgetSettings, CompiledWidgetPanel, DisplayStore, WidgetPanelContent,
 };
 use time::format_description;
 use uuid::Uuid;
 
-use crate::{http::query_active_addon_list, Result};
+use crate::{
+    http::{query_active_addon_list, website::CompiledAddonWidgetInfo},
+    Result,
+};
 
 use super::{JsonListResponse, JsonResponse};
 
@@ -59,6 +62,7 @@ pub fn routes() -> Router<SqlitePool> {
             "/widget/:widget",
             get(get_widget_no_data).post(update_widget),
         )
+        .route("/widget/:widget/compiled", get(get_widget_compiled))
         .route("/widget/:widget/data", get(get_widget_data))
         .route(
             "/widget/:widget/panels",
@@ -111,7 +115,7 @@ pub async fn publish_addon(
         pub path: String,
         pub display_name: String,
 
-        pub settings: api::WebsitePageSettings,
+        pub settings: webby_api::WebsitePageSettings,
 
         pub content: DisplayStore,
         pub version: i32,
@@ -170,7 +174,7 @@ pub async fn publish_addon(
         Box::pin(async move {
             let compiled = NewAddonCompiledModel {
                 addon_id: addon.id,
-                settings: storage::widget::CompiledAddonSettings {},
+                settings: webby_storage::widget::CompiledAddonSettings {},
                 type_of,
                 version: version.clone(),
             }
@@ -194,7 +198,7 @@ pub async fn publish_addon(
                     script: None,
                     settings: page.settings,
                     hash: format!("{:X}", sha.finalize()),
-                    type_of: api::WebsitePageType::Basic,
+                    type_of: webby_api::WebsitePageType::Basic,
                     path: page.path,
                     display_name: page.display_name,
                 }
@@ -210,8 +214,8 @@ pub async fn publish_addon(
 
                 let script = script.map(|s| match s.take_data() {
                     Either::Left(v) => unimplemented!(),
-                    // Either::Left(v) => scripting::compile(
-                    //     scripting::ModuleInit {
+                    // Either::Left(v) => webby_scripting::compile(
+                    //     webby_scripting::ModuleInit {
                     //         id: String::new(),
                     //         name: String::new(),
                     //         content: VisslContent::default(),
@@ -246,8 +250,8 @@ pub async fn publish_addon(
 
                         let script = script.map(|s| match s.take_data() {
                             Either::Left(v) => unimplemented!(),
-                            // Either::Left(v) => scripting::compile(
-                            //     scripting::ModuleInit {
+                            // Either::Left(v) => webby_scripting::compile(
+                            //     webby_scripting::ModuleInit {
                             //         id: String::new(),
                             //         name: String::new(),
                             //         content: VisslContent::default(),
@@ -363,11 +367,11 @@ pub async fn website_addon_install(
 
     #[derive(Serialize)]
     struct PublicPage {
-        type_of: api::WebsitePageType,
+        type_of: webby_api::WebsitePageType,
         addon_uuid: AddonUuid,
         path: String,
         display_name: String,
-        data: storage::DisplayStore,
+        data: webby_storage::DisplayStore,
     }
 
     let widget_pages = AddonCompiledPage::find_by_compiled_id(compiled.pk, &mut acq).await?;
@@ -512,7 +516,7 @@ async fn get_addon_overview(
     let schemas = SchemaModel::find_by_addon_id(addon.id, &mut acq)
         .await?
         .into_iter()
-        .map(|schema| api::PublicSchema {
+        .map(|schema| webby_api::PublicSchema {
             schema_id: schema.name,
             namespace: Some(format!("@{}", addon.name_id)),
             primary_field: schema.primary_field,
@@ -563,7 +567,7 @@ pub async fn create_addon_item(
                 // 1. Create Widget Content in database locally.
                 let model = NewAddonWidgetContent {
                     addon_id: addon.id,
-                    data: storage::DisplayStore::empty_widget(),
+                    data: webby_storage::DisplayStore::empty_widget(),
                     title: None,
                     description: None,
                     thumbnail: None,
@@ -618,6 +622,56 @@ pub async fn create_addon_item(
     Ok(Json(WrappingResponse::okay("ok")))
 }
 
+// TODO: We need to specify a version to get.
+// Currently this is only used for when an addon uses another addons widget.
+pub async fn get_widget_compiled(
+    Path((addon_id, widget_id)): Path<(AddonUuid, AddonWidgetPublicId)>,
+    State(db): State<SqlitePool>,
+) -> Result<JsonResponse<Option<CompiledAddonWidgetInfo>>> {
+    let mut acq = db.acquire().await?;
+
+    let addon = AddonModel::find_one_by_guid(*addon_id, &mut acq)
+        .await?
+        .context("Addon not found")?;
+
+    let widget = AddonWidgetContent::find_one_by_public_id_no_data(widget_id, &mut acq)
+        .await?
+        .context("Widget not found")?;
+
+    let addon_compiled = AddonCompiledModel::find_one_by_addon_uuid_and_version(
+        widget.addon_id,
+        &addon.version,
+        &mut acq,
+    )
+    .await?
+    .context("Addon not found")?;
+
+    let mut widget_comp = AddonCompiledWidget::find_one_by_compiled_id_and_widget_id(
+        addon_compiled.pk,
+        widget.pk,
+        &mut acq,
+    )
+    .await?
+    .context("Compiled Widget not found")?;
+
+    for panel in &mut widget_comp.settings.0.panels {
+        if let Some(script) = panel.script.as_mut() {
+            *script = webby_scripting::swc::compile(script.clone())?;
+        }
+    }
+
+    return Ok(Json(WrappingResponse::okay(Some(
+        CompiledAddonWidgetInfo {
+            data: widget_comp.data.0,
+            script: widget_comp
+                .script
+                .map(webby_scripting::swc::compile)
+                .transpose()?,
+            settings: widget_comp.settings.0,
+        },
+    ))));
+}
+
 pub async fn get_widget_no_data(
     Path((addon_id, widget_id)): Path<(AddonUuid, AddonWidgetPublicId)>,
     State(db): State<SqlitePool>,
@@ -645,7 +699,7 @@ pub async fn get_widget_data(
 pub async fn update_widget(
     Path((addon_id, widget_id)): Path<(AddonUuid, AddonWidgetPublicId)>,
     State(db): State<SqlitePool>,
-    Json(update): Json<api::UpdateWidget>,
+    Json(update): Json<webby_api::UpdateWidget>,
 ) -> Result<JsonResponse<&'static str>> {
     let mut acq = db.acquire().await?;
 
@@ -745,7 +799,7 @@ pub async fn update_widget_panel_data(
         AddonWidgetPanelPublicId,
     )>,
     State(db): State<SqlitePool>,
-    Json(store): Json<api::UpdateWidgetPanel>,
+    Json(store): Json<webby_api::UpdateWidgetPanel>,
 ) -> Result<JsonResponse<&'static str>> {
     let mut acq = db.acquire().await?;
 

@@ -1,11 +1,11 @@
-use api::{WebsitePageSettings, WebsitePageType};
+use webby_api::{WebsitePageSettings, WebsitePageType};
 use eyre::Result;
-use global_common::{id::AddonCompiledPagePublicId, Either};
+use webby_global_common::{id::AddonCompiledPagePublicId, Either};
 use local_common::{AddonCompiledId, AddonCompiledPageId, AddonId};
-use scripting::json::VisslContent;
+use webby_scripting::json::VisslContent;
 use serde::Serialize;
 use sqlx::{types::Json, FromRow, SqliteConnection};
-use storage::{DisplayStore, PageStoreV0, CURRENT_STORE_VERSION};
+use webby_storage::{DisplayStore, PageStoreV0, CURRENT_STORE_VERSION};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]

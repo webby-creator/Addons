@@ -1,7 +1,7 @@
 use eyre::Result;
-use global_common::Either;
+use webby_global_common::Either;
 use local_common::{AddonId, AddonWidgetId, VisslAddonCodeId};
-use scripting::json::VisslContent;
+use webby_scripting::json::VisslContent;
 use serde::Serialize;
 use sqlx::{types::Json, SqliteConnection};
 use time::OffsetDateTime;

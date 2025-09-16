@@ -3,7 +3,7 @@ members = ["./crates/backend", "./crates/database"]
 
 
 [workspace.dependencies]
-global-common = { git = "https://github.com/webby-creator/Global-Common", version = "0.1.0" }
+webby-global-common = { version = "0.1.0", registry = "tasty" }
 tokio = { version = "1.39" }
 
 serde = "1.0"
