@@ -207,8 +207,8 @@ impl StorageService {
 
         let auth = get_auth()?;
 
-        let min_part_size = auth.absolute_minimum_part_size;
-        let rec_part_size = auth.recommended_part_size;
+        let min_part_size = auth.api_info.storage_api.absolute_minimum_part_size;
+        let rec_part_size = auth.api_info.storage_api.recommended_part_size;
 
         // This length may be inaccurate. For example it could be Multipart bounds not just stream length.
         if assumed_length <= (rec_part_size + min_part_size) as i64 {
