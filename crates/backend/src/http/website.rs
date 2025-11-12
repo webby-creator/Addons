@@ -1,12 +1,13 @@
-use webby_api::ListResponse;
+use std::collections::HashMap;
+
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     routing::{get, post},
     Json, Router,
 };
 use database::{
     AddonCompiledModel, AddonCompiledWidget, AddonInstanceModel, AddonModel, AddonWidgetContent,
-    NewAddonInstanceModel, WidgetModel,
+    NewAddonInstanceModel, NewWebsiteWidgetSettingsModel, WebsiteWidgetSettingsModel, WidgetModel,
 };
 use eyre::ContextCompat;
 use local_common::{MemberModel, WebsiteId, WebsiteModel};
@@ -16,6 +17,7 @@ use uuid::Uuid;
 use webby_addon_common::{
     InstallResponse, JsonListResponse, JsonResponse, WebsiteUuid, WrappingResponse,
 };
+use webby_api::ListResponse;
 use webby_global_common::id::{AddonWidgetPublicId, WebsitePublicId};
 use webby_storage::{widget::CompiledWidgetSettings, DisplayStore};
 
@@ -31,7 +33,10 @@ pub fn routes() -> Router<SqlitePool> {
             "/editor/object/:object_id/data",
             get(get_editor_widget_data),
         )
-        .route("/widget/:widget_id", get(get_website_addon_widget))
+        .route(
+            "/widget/:widget_id",
+            get(get_website_addon_widget).post(update_website_addon_widget),
+        )
         .route("/widgets", get(get_website_addon_widgets))
 }
 
@@ -172,14 +177,23 @@ async fn get_editor_widget_data(
 pub struct CompiledAddonWidgetInfo {
     pub data: DisplayStore,
     pub script: Option<String>,
-    pub settings: CompiledWidgetSettings,
+    pub config: CompiledWidgetSettings,
+    pub settings: serde_json::Value,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompiledAddonWidgetQuery {
+    pub object_id: Option<Uuid>,
 }
 
 /// Gets' the Published Widget data
 async fn get_website_addon_widget(
     State(db): State<SqlitePool>,
 
+    // TODO: Use Instance
     Path((website_id, widget_id)): Path<(WebsitePublicId, AddonWidgetPublicId)>,
+    Query(CompiledAddonWidgetQuery { object_id }): Query<CompiledAddonWidgetQuery>,
 ) -> Result<JsonResponse<Option<CompiledAddonWidgetInfo>>> {
     let mut acq = db.acquire().await?;
 
@@ -221,6 +235,41 @@ async fn get_website_addon_widget(
         .await?
         .context("Compiled Widget not found")?;
 
+        let settings = if let Some(settings) =
+            WebsiteWidgetSettingsModel::find_one_by_website_id_and_object_id(
+                instance.website_id,
+                widget.pk,
+                // TODO: Check `addon_compiled` to determine if we can have multiple widget settings or a single one.
+                // If single, `object_id` will be replaced with None
+                object_id,
+                &mut acq,
+            )
+            .await?
+        {
+            let serde_json::Value::Object(mut existing) = settings.settings.0 else {
+                panic!("Expected Map");
+            };
+
+            let mut map =
+                serde_json::Map::from_iter(widget_comp.settings.variables.iter().filter_map(|v| {
+                    let prop = v.clone();
+
+                    Some((prop.name().to_string(), prop.take_default_json()?))
+                }));
+
+            map.append(&mut existing);
+
+            serde_json::Value::Object(map)
+        } else {
+            serde_json::Value::Object(serde_json::Map::from_iter(
+                widget_comp.settings.variables.iter().filter_map(|v| {
+                    let prop = v.clone();
+
+                    Some((prop.name().to_string(), prop.take_default_json()?))
+                }),
+            ))
+        };
+
         for panel in &mut widget_comp.settings.0.panels {
             if let Some(script) = panel.script.as_mut() {
                 *script = webby_scripting::swc::compile(script.clone())?;
@@ -234,12 +283,121 @@ async fn get_website_addon_widget(
                     .script
                     .map(webby_scripting::swc::compile)
                     .transpose()?,
-                settings: widget_comp.settings.0,
+                config: widget_comp.settings.0,
+                settings,
             },
         ))));
     }
 
     Ok(Json(WrappingResponse::okay(None)))
+}
+
+#[derive(serde::Deserialize)]
+pub struct UpdateWebsiteAddonWidget {
+    pub settings: Option<HashMap<String, serde_json::Value>>,
+}
+
+async fn update_website_addon_widget(
+    State(db): State<SqlitePool>,
+
+    // TODO: Use (Instance, Widget)
+    Path((website_id, widget_id)): Path<(WebsitePublicId, AddonWidgetPublicId)>,
+    Query(CompiledAddonWidgetQuery { object_id }): Query<CompiledAddonWidgetQuery>,
+    Json(UpdateWebsiteAddonWidget { settings }): Json<UpdateWebsiteAddonWidget>,
+) -> Result<JsonResponse<&'static str>> {
+    let mut acq = db.acquire().await?;
+
+    let widget = AddonWidgetContent::find_one_by_public_id(widget_id, &mut acq)
+        .await?
+        .context("Widget not found")?;
+
+    let active = AddonInstanceModel::find_by_website_uuid(*website_id, &mut acq).await?;
+
+    for instance in active {
+        let addon = AddonModel::find_one_by_id(instance.addon_id, &mut acq)
+            .await?
+            .unwrap();
+
+        // TODO: A Temporary fix
+        if instance.version.is_empty() {
+            warn!("Missing Instance Version for Website Addon {}", addon.guid);
+            continue;
+        }
+
+        // Ensure we're looking at the specific addon
+        if widget.addon_id != addon.id {
+            continue;
+        }
+
+        let addon_compiled = AddonCompiledModel::find_one_by_addon_uuid_and_version(
+            addon.id,
+            &instance.version,
+            &mut acq,
+        )
+        .await?
+        .context("Addon not found")?;
+
+        let widget_comp = AddonCompiledWidget::find_one_by_compiled_id_and_widget_id(
+            addon_compiled.pk,
+            widget.pk,
+            &mut acq,
+        )
+        .await?
+        .context("Compiled Widget not found")?;
+
+        // We save only changed settings.
+        if let Some(new_settings) = settings {
+            let original_map: HashMap<String, serde_json::Value> = widget_comp
+                .settings
+                .variables
+                .iter()
+                .filter_map(|v| {
+                    let prop = v.clone();
+
+                    Some((prop.name().to_string(), prop.take_default_json()?))
+                })
+                .collect();
+
+            if let Some(mut settings) =
+                WebsiteWidgetSettingsModel::find_one_by_website_id_and_object_id(
+                    instance.website_id,
+                    widget.pk,
+                    // TODO: Check `addon_compiled` to determine if we can have multiple widget settings or a single one.
+                    // If single, `object_id` will be replaced with None
+                    object_id,
+                    &mut acq,
+                )
+                .await?
+            {
+                let mut current: HashMap<String, serde_json::Value> =
+                    serde_json::from_value(settings.settings.0)?;
+                current.extend(new_settings);
+
+                let diff_map = diff_from(original_map, current);
+
+                settings.settings.0 = serde_json::to_value(diff_map)?;
+                settings.update(&mut acq).await?;
+            } else {
+                let diff_map = diff_from(original_map, new_settings);
+
+                if !diff_map.is_empty() {
+                    NewWebsiteWidgetSettingsModel {
+                        website_id: instance.website_id,
+                        addon_id: addon.id,
+                        addon_widget_id: widget.pk,
+                        object_id,
+                        settings: Some(serde_json::to_value(diff_map)?),
+                    }
+                    .insert(&mut acq)
+                    .await?;
+                }
+            }
+        }
+
+        break;
+    }
+
+    Ok(Json(WrappingResponse::okay("ok")))
 }
 
 async fn get_website_addon_widgets(
@@ -278,4 +436,24 @@ async fn get_website_addon_widgets(
     }
 
     Ok(Json(WrappingResponse::okay(ListResponse::all(items))))
+}
+
+fn diff_from(
+    main: HashMap<String, serde_json::Value>,
+    child: HashMap<String, serde_json::Value>,
+) -> HashMap<String, serde_json::Value> {
+    let mut diff_map = HashMap::new();
+
+    for (key, child_value) in child {
+        if let Some(main_value) = main.get(&key) {
+            if main_value != &child_value {
+                diff_map.insert(key, child_value);
+            }
+        } else {
+            // Key exists in child but not in main
+            diff_map.insert(key, child_value);
+        }
+    }
+
+    diff_map
 }

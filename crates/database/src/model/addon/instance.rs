@@ -1,9 +1,9 @@
-use webby_global_common::id::AddonInstanceUuid;
 /// Instances of addons used on websites
 use local_common::{AddonId, AddonInstanceId, WebsiteId};
 use sqlx::{types::Json, FromRow, Result, SqliteConnection};
 use time::OffsetDateTime;
 use uuid::Uuid;
+use webby_global_common::id::AddonInstanceUuid;
 
 pub struct NewAddonInstanceModel {
     pub addon_id: AddonId,
@@ -98,6 +98,18 @@ impl AddonInstanceModel {
             "SELECT id, public_id, addon_id, website_id, website_uuid, is_setup, settings, version, delete_reason, created_at, updated_at, deleted_at FROM addon_instance WHERE public_id = $1",
         )
         .bind(uuid)
+        .fetch_optional(db)
+        .await
+    }
+
+    pub async fn find_by_id(
+        id: AddonInstanceId,
+        db: &mut SqliteConnection,
+    ) -> Result<Option<Self>> {
+        sqlx::query_as(
+            "SELECT id, public_id, addon_id, website_id, website_uuid, is_setup, settings, version, delete_reason, created_at, updated_at, deleted_at FROM addon_instance WHERE id = $1",
+        )
+        .bind(id)
         .fetch_optional(db)
         .await
     }

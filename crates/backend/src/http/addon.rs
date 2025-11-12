@@ -1,7 +1,3 @@
-use webby_addon_common::{
-    InstallResponse, MemberPartial, MemberUuid, RegisterNewJson, WebsitePartial, WebsiteUuid,
-};
-use webby_api::{ListResponse, WrappingResponse};
 use axum::{
     extract::{self, Path, State},
     routing::{get, post},
@@ -17,21 +13,25 @@ use database::{
     VisslCodeAddonPanelModel, WidgetModel,
 };
 use eyre::ContextCompat;
-use webby_global_common::{
-    id::{AddonUuid, AddonWidgetPanelPublicId, AddonWidgetPublicId},
-    response::AddonInstallResponse,
-    Either,
-};
 use lazy_static::lazy_static;
 use local_common::{DashboardPageInfo, MemberModel, WebsiteModel};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{Connection, SqliteConnection, SqlitePool};
+use time::format_description;
+use uuid::Uuid;
+use webby_addon_common::{
+    InstallResponse, MemberPartial, MemberUuid, RegisterNewJson, WebsitePartial, WebsiteUuid,
+};
+use webby_api::{ListResponse, WrappingResponse};
+use webby_global_common::{
+    id::{AddonUuid, AddonWidgetPanelPublicId, AddonWidgetPublicId},
+    response::AddonInstallResponse,
+    Either,
+};
 use webby_storage::{
     widget::CompiledWidgetSettings, CompiledWidgetPanel, DisplayStore, WidgetPanelContent,
 };
-use time::format_description;
-use uuid::Uuid;
 
 use crate::{
     http::{query_active_addon_list, website::CompiledAddonWidgetInfo},
@@ -289,9 +289,9 @@ pub async fn publish_addon(
                     description: widget.description,
                     thumbnail: None,
                     settings: CompiledWidgetSettings {
-                        action_bar: widget.settings.0.action_bar,
-                        presets: widget.settings.0.presets,
-                        variables: widget.settings.0.variables,
+                        action_bar: widget.config.0.action_bar,
+                        presets: widget.config.0.presets,
+                        variables: widget.config.0.variables,
                         panels: found_panels,
                     },
                 }
@@ -667,7 +667,8 @@ pub async fn get_widget_compiled(
                 .script
                 .map(webby_scripting::swc::compile)
                 .transpose()?,
-            settings: widget_comp.settings.0,
+            config: widget_comp.settings.0,
+            settings: serde_json::json!({}),
         },
     ))));
 }
@@ -718,17 +719,17 @@ pub async fn update_widget(
     }
 
     if let Some(variables) = update.variables {
-        found.settings.0.variables = variables;
+        found.config.0.variables = variables;
         updated = true;
     }
 
     if let Some(presets) = update.presets {
-        found.settings.0.presets = presets;
+        found.config.0.presets = presets;
         updated = true;
     }
 
     if let Some(action_bar) = update.action_bar {
-        found.settings.0.action_bar = action_bar;
+        found.config.0.action_bar = action_bar;
         updated = true;
     }
 

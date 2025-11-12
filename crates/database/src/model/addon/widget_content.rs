@@ -1,11 +1,11 @@
-use webby_api::WidgetSettings;
 use eyre::Result;
-use webby_global_common::id::AddonWidgetPublicId;
 use local_common::{AddonId, AddonWidgetId};
 use serde::Serialize;
 use sqlx::{types::Json, FromRow, SqliteConnection};
-use webby_storage::{DisplayStore, PageStoreV0, CURRENT_STORE_VERSION};
 use time::OffsetDateTime;
+use webby_api::WidgetSettings;
+use webby_global_common::id::AddonWidgetPublicId;
+use webby_storage::{DisplayStore, PageStoreV0, CURRENT_STORE_VERSION};
 
 #[derive(Debug, Clone, Serialize, FromRow)]
 #[serde(rename_all = "camelCase")]
@@ -34,7 +34,7 @@ pub struct AddonWidgetContent {
     pub title: Option<String>,
     pub description: Option<String>,
     pub thumbnail: Option<String>,
-    pub settings: Json<WidgetSettings>,
+    pub config: Json<WidgetSettings>,
 
     pub created_at: OffsetDateTime,
     pub updated_at: OffsetDateTime,
@@ -53,7 +53,8 @@ pub struct AddonWidgetNoDataModel {
     pub title: Option<String>,
     pub description: Option<String>,
     pub thumbnail: Option<String>,
-    pub settings: Json<WidgetSettings>,
+    #[sqlx(rename = "settings")]
+    pub config: Json<WidgetSettings>,
 
     pub created_at: OffsetDateTime,
     pub updated_at: OffsetDateTime,
@@ -91,7 +92,7 @@ impl NewAddonWidgetContent {
             title: self.title,
             description: self.description,
             thumbnail: self.thumbnail,
-            settings: Json(WidgetSettings::default()),
+            config: Json(WidgetSettings::default()),
 
             created_at: now,
             updated_at: now,
@@ -121,7 +122,7 @@ impl AddonWidgetContent {
         .bind(&self.description)
         .bind(&self.thumbnail)
         .bind(self.updated_at)
-        .bind(&self.settings)
+        .bind(&self.config)
         .execute(db)
         .await?;
 
@@ -225,7 +226,7 @@ where
         let title = row.try_get("title")?;
         let description = row.try_get("description")?;
         let thumbnail = row.try_get("thumbnail")?;
-        let settings = row.try_get("settings")?;
+        let config = row.try_get("settings")?;
         let created_at = row.try_get("created_at")?;
         let updated_at = row.try_get("updated_at")?;
 
@@ -244,7 +245,7 @@ where
             title,
             description,
             thumbnail,
-            settings,
+            config,
             created_at,
             updated_at,
         })

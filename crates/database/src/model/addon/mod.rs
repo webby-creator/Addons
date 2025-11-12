@@ -17,6 +17,7 @@ mod site_template_content;
 mod site_widget;
 mod tag;
 mod webhook;
+mod website_widget_settings;
 mod widget_content;
 mod widget_panel;
 
@@ -31,6 +32,7 @@ pub use permission::*;
 pub use site_template::*;
 pub use site_template_content::*;
 pub use site_widget::*;
+pub use website_widget_settings::*;
 pub use widget_content::*;
 pub use widget_panel::*;
 
